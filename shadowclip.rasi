@@ -1,0 +1,76 @@
+/* ShadowClip theme -- black background, green text, terminal aesthetic.
+ * Alternating row shades (pure black vs. dark green tint) preserve the same
+ * "tell rows apart at a glance" idea as rofi's default grey/white striping,
+ * just reskinned. The selected row inverts to bright green so it's obvious
+ * which entry is currently highlighted while navigating with arrow keys. */
+
+* {
+    background-color: #000000;
+    text-color: #00CC33;
+    font: "Monospace 12";
+}
+
+window {
+    background-color: #000000;
+    border: 2px;
+    border-color: #00FF41;
+    border-radius: 4px;
+    padding: 12px;
+    width: 650px;
+}
+
+mainbox {
+    background-color: #000000;
+    children: [ "inputbar", "listview" ];
+}
+
+inputbar {
+    background-color: #000000;
+    text-color: #00FF41;
+    padding: 8px;
+    border: 0px 0px 2px 0px;
+    border-color: #00FF41;
+    children: [ "prompt", "entry" ];
+}
+
+prompt {
+    background-color: #000000;
+    text-color: #00FF41;
+}
+
+entry {
+    background-color: #000000;
+    text-color: #00FF41;
+    placeholder: "search clipboard history...";
+    placeholder-color: #006618;
+}
+
+listview {
+    background-color: #000000;
+    lines: 17;
+    scrollbar: false;
+    spacing: 2px;
+}
+
+element {
+    background-color: #000000;
+    text-color: #00CC33;
+    padding: 6px 8px;
+    border-radius: 2px;
+}
+
+element alternate.normal {
+    background-color: #001a00;
+    text-color: #00CC33;
+}
+
+element selected.normal {
+    background-color: #00FF41;
+    text-color: #000000;
+}
+
+element-text {
+    background-color: inherit;
+    text-color: inherit;
+    highlight: bold;
+}

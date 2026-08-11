@@ -1,0 +1,9 @@
+[Unit]
+Description=ShadowClip clipboard history daemon
+
+[Service]
+ExecStart=%h/bin/shadowclip-daemon.sh
+Restart=always
+
+[Install]
+WantedBy=default.target
