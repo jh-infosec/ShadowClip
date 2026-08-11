@@ -1,28 +1,34 @@
 # ShadowClip
 
-> Clipboard History Popup for Kali and other X11 Desktops
+> Clipboard History with a Pause Button, for Kali and other X11 Desktops
 
 ---
 
 ## Why ShadowClip?
 
-The X11 clipboard holds one thing at a time. Copy something else and the
-previous value is gone.
+A clipboard history tool is genuinely useful and genuinely a security
+tradeoff. It turns something normally ephemeral into something that persists
+on disk.
 
-ShadowClip records recent clipboard values in the background and puts them
-behind a hotkey, so anything copied in the last few minutes is one keypress
-and one keystroke of search away.
+For anyone regularly copying passwords, tokens, hashes or payloads — during
+HTB machines, CTFs or client work — that tradeoff is worth taking seriously
+rather than ignoring.
+
+ShadowClip keeps the convenience and adds the controls that make the tradeoff
+manageable: restrictive permissions, automatic expiry, and a one-key pause
+before a session full of secrets.
 
 ---
 
 ## Project Goals
 
-ShadowClip is designed to answer two questions:
+ShadowClip is designed to answer three questions:
 
 - What did I copy recently?
 - How do I get it back instantly?
+- How do I stop recording when I shouldn't be?
 
-It is a convenience tool. Security controls arrive in v0.2.
+It is a convenience tool with security controls, not a secrets manager.
 
 ---
 
@@ -31,6 +37,9 @@ It is a convenience tool. Security controls arrive in v0.2.
 - Numbered history, 1 is most recent, newest entry emphasised in bold
 - Searchable popup on a hotkey, type to filter
 - Configurable maximum entries, changed from the popup
+- Auto-expiry of entries older than a configurable deadline
+- Pause and resume capturing, from the popup or a dedicated hotkey
+- Owner-only permissions on the history directory and every entry
 - Clear all history on demand
 - Black and green terminal theme with alternating row shading
 
@@ -43,20 +52,21 @@ It is a convenience tool. Security controls arrive in v0.2.
               │
               │ poll
               ▼
-           Daemon
-              │
-              ▼
-      History Directory
-              │
-              ▼
-           Picker
+           Daemon ──── pause flag ────┐
+              │                       │
+              ▼                       │
+      History Directory ◄─────────────┤
+              │                       │
+              ▼                       │
+           Picker                  Toggle
               │
               ▼
         X11 Clipboard
 ```
 
-There is no daemon-to-picker communication. Both components coordinate
-through the same filesystem state: the history directory and the config file.
+There is no daemon-to-picker communication. Every component coordinates
+through the same filesystem state: the history directory, the config file and
+the pause flag.
 
 See `architecture.md` for the full design.
 
@@ -64,27 +74,48 @@ See `architecture.md` for the full design.
 
 ## Security
 
-History lives in `~/.cache/shadowclip/` as plain, unencrypted text files with
-default permissions.
+Read this section if you use ShadowClip for pentest or CTF work.
 
-There is no expiry and no way to pause capturing in this version, so anything
-copied stays on disk until it is pushed out by newer entries or cleared by
-hand.
+**What it does**
 
-Clear the history after copying anything sensitive, either from the popup or
-with `rm -rf ~/.cache/shadowclip/*`.
+- History directory is `700`, entries and config are `600`, owner-only
+- Permissions are reapplied on every start, so upgrading hardens an existing
+  install
+- Entries older than `EXPIRY_MINUTES` (default 30) are deleted automatically
+- Capturing can be paused entirely, so nothing new is written
+- History can be wiped on demand
 
-If this matters for your use, v0.2 adds owner-only permissions, automatic
-expiry and a pause hotkey.
+**What it does not do**
+
+History is stored as plain, unencrypted text while it exists. Permissions
+limit who can read it; they do not make it unreadable. Root can read it.
+
+Clear and expiry both unlink files. They do not erase the underlying blocks,
+and on an SSD deleted data can remain forensically recoverable for some time.
+
+The pause flag is an ordinary file in a user-writable directory. It is a
+convenience, not a security control.
+
+**The practical habit**
+
+Pause before a session involving real secrets, rather than clearing after.
+Not writing a secret to disk is reliable. Deleting one is not.
 
 ---
 
 ## Technology
 
+Current stack
+
 - Bash
 - xclip
 - rofi
 - systemd user services
+
+Planned
+
+- wl-clipboard for Wayland
+- tmpfs-backed history
 
 ---
 
@@ -102,6 +133,23 @@ expiry and a pause hotkey.
 - Auto-Expiry
 - Pause and Resume
 
+### v0.3
+
+- Install Script
+- Config Parsing
+- Secret Detection
+
+### v0.4
+
+- Wayland Support
+- Entry Pinning
+
+### v1.0
+
+- Encrypted History
+- Automated Tests
+- Packaged Install
+
 ---
 
 ## Running ShadowClip
@@ -117,8 +165,8 @@ Install the scripts
 
 ```bash
 mkdir -p ~/bin
-cp shadowclip-daemon.sh shadowclip-picker.sh shadowclip.rasi ~/bin/
-chmod +x ~/bin/shadowclip-daemon.sh ~/bin/shadowclip-picker.sh
+cp shadowclip-daemon.sh shadowclip-picker.sh shadowclip-toggle.sh shadowclip.rasi ~/bin/
+chmod +x ~/bin/shadowclip-*.sh
 ```
 
 `shadowclip-picker.sh` resolves `shadowclip.rasi` relative to its own
@@ -139,11 +187,10 @@ Check it is running
 systemctl --user status shadowclip.service
 ```
 
-Bind the picker to a hotkey, in Xfce under Settings, Keyboard, Application
-Shortcuts
+Bind the hotkeys, in Xfce under Settings, Keyboard, Application Shortcuts
 
-- Command `~/bin/shadowclip-picker.sh`
-- Shortcut `Ctrl+Alt+V`
+- `~/bin/shadowclip-picker.sh` on `Ctrl+Alt+V` for the popup
+- `~/bin/shadowclip-toggle.sh` on `Ctrl+Alt+P` for instant pause and resume
 
 On GNOME the equivalent is Settings, Keyboard, View and Customize Shortcuts,
 Custom Shortcuts.
@@ -155,7 +202,7 @@ Startup, Application Autostart.
 
 ## Using ShadowClip
 
-Copy as normal, then press the hotkey:
+Copy as normal, then press the picker hotkey:
 
 ```
 ➤ 1   most recent thing you copied
@@ -163,11 +210,16 @@ Copy as normal, then press the hotkey:
    3   third most recent
    ──────────────────────
    ⚙  Set max entries stored  (currently: 15)
+   ⏱  Set auto-expiry minutes  (currently: 30)
+   ⏸  Pause capturing  (expires in 30m, currently 3/15 stored)
    🗑  Clear all history
 ```
 
 Type to filter, arrows and Enter to select. Selecting an entry restores it to
 the clipboard, ready to paste with `Ctrl+Shift+V` in most terminals.
+
+While paused the prompt reads `ShadowClip [PAUSED]` and the pause row becomes
+"Resume capturing".
 
 ---
 
@@ -177,10 +229,12 @@ Settings live in `~/.config/shadowclip/config` and can be edited by hand:
 
 ```
 MAX_ENTRIES=15
+EXPIRY_MINUTES=30
 ```
 
-Changes take effect immediately, with no daemon restart, because config is
-read at the point of use rather than cached at startup.
+Set `EXPIRY_MINUTES=0` to disable expiry entirely. Changes take effect
+immediately, with no daemon restart, because config is read at the point of
+use rather than cached at startup.
 
 Paths can be overridden from the environment with `SHADOWCLIP_HISTDIR` and
 `SHADOWCLIP_CONFIG_DIR`.
@@ -189,9 +243,13 @@ Paths can be overridden from the environment with `SHADOWCLIP_HISTDIR` and
 
 ## Philosophy
 
-ShadowClip is deliberately small. Two scripts, a theme and a unit file, each
-readable in one sitting.
+ShadowClip is a convenience tool that admits what it costs.
 
-Polling every 0.5 seconds rather than subscribing to clipboard events is a
-choice, not an oversight: a dependency-light daemon anyone can read is worth
-more here than one that shaves half a second off capture latency.
+Every mitigation is described by what it actually does. Permissions restrict
+access, expiry limits how long a secret lingers, and pause prevents a secret
+being written at all. None of them make stored history unreadable, and the
+documentation says so rather than implying otherwise.
+
+Polling every 0.5 seconds is a deliberate choice: a dependency-light daemon
+that anyone can read in one sitting is worth more here than an event-driven
+one that shaves half a second.

@@ -1,22 +1,32 @@
 # Changelog
 
-## Version 0.1.0
+## Version 0.2.0
 
-Initial release.
+Security hardening release.
 
 ### Added
 
-- Clipboard daemon polling X11 every 0.5 seconds
-- Rofi picker with numbered history, newest entry emphasised
-- Configurable maximum entries, changed from the popup
-- Clear all history action
-- Black and green terminal theme with alternating row shading
-- systemd user service for start on login
+- Auto-expiry of entries older than `EXPIRY_MINUTES` (default 30)
+- Pause and resume capturing, from the picker or a dedicated hotkey
+- `shadowclip-toggle.sh` for menu-free pause and resume
+- "Set auto-expiry minutes" action in the picker
+- `[PAUSED]` indicator in the picker prompt
+- Entry count and limit shown on the pause row
+
+### Changed
+
+- History directory created with `700` permissions
+- Config file and history entries created with `600` permissions
+- Permissions reapplied on every start, so existing installs are hardened
+- `MAX_ENTRIES` updated in place rather than rewriting the config file,
+  so changing one setting no longer discards the other
+- Clear history now excludes the pause flag rather than removing everything
 
 ### Notes
 
-History is stored as plain, unencrypted text in `~/.cache/shadowclip/` with
-default permissions. Clear the history after copying anything sensitive.
+Pausing stops new entries being written. It does not stop expiry of entries
+already saved, which continues while paused.
 
-There is no automatic expiry and no way to pause capturing in this version.
-Both arrive in v0.2.
+History remains plain, unencrypted text. Clear and expiry unlink files; they
+do not erase the underlying blocks. Pausing before a session involving real
+secrets is the practical mitigation.
