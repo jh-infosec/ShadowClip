@@ -18,7 +18,7 @@ set -euo pipefail
 
 # config
 
-: "${SHADOWCLIP_HISTDIR:=$HOME/.cache/shadowclip}"
+: "${SHADOWCLIP_HISTDIR:=${XDG_RUNTIME_DIR:-$HOME/.cache}/shadowclip}"
 
 HISTDIR="$SHADOWCLIP_HISTDIR"
 PAUSE_FILE="$HISTDIR/.paused"

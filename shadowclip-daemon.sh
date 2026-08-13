@@ -19,17 +19,22 @@
 # picker, through shadowclip-toggle.sh, or by hand. While paused the daemon
 # keeps running so that expiry of already-saved entries continues.
 #
+# The config helpers below are duplicated in the picker and toggle scripts.
+# That is deliberate: each script stays independently runnable, so copying
+# one of them somewhere on its own still works.
+#
 # Requires: xclip   (sudo apt install xclip)
 
 set -euo pipefail
 
 # config
 #
-# Every tunable lives here and can be overridden from the environment, so the
-# service unit or a test harness can point the daemon somewhere else without
-# editing this file.
+# History defaults to XDG_RUNTIME_DIR, which is tmpfs on systemd systems and
+# already owner-only. Entries therefore live in memory and vanish on logout
+# rather than being written to the SSD. Falls back to ~/.cache when
+# XDG_RUNTIME_DIR is unset.
 
-: "${SHADOWCLIP_HISTDIR:=$HOME/.cache/shadowclip}"
+: "${SHADOWCLIP_HISTDIR:=${XDG_RUNTIME_DIR:-$HOME/.cache}/shadowclip}"
 : "${SHADOWCLIP_CONFIG_DIR:=$HOME/.config/shadowclip}"
 
 HISTDIR="$SHADOWCLIP_HISTDIR"
@@ -38,8 +43,25 @@ CONFIG_FILE="$CONFIG_DIR/config"
 PAUSE_FILE="$HISTDIR/.paused"
 DEFAULT_MAX_ENTRIES=15
 DEFAULT_EXPIRY_MINUTES=30
+DEFAULT_SECRET_FILTER=1
 POLL_INTERVAL=0.5
 EXPIRY_CHECK_LOOPS=20
+SECRET_SCAN_CHARS=4096
+
+# Patterns for values that are almost certainly credentials. Deliberately
+# narrow: bare hex and base64 are excluded because hashes and payloads are
+# working material for pentest and CTF use, and silently dropping them would
+# make the tool untrustworthy.
+SECRET_PATTERNS=(
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    'ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+'
+    'A(KIA|SIA)[0-9A-Z]{16}'
+    'gh[pousr]_[A-Za-z0-9]{20,}'
+    'github_pat_[A-Za-z0-9_]{20,}'
+    'xox[baprs]-[A-Za-z0-9-]{10,}'
+    'glpat-[A-Za-z0-9_-]{20,}'
+    '(password|passwd|api[_-]?key|secret|token)[[:space:]]*[=:][[:space:]]*[^[:space:]]{6,}'
+)
 
 # setup
 #
@@ -48,41 +70,68 @@ EXPIRY_CHECK_LOOPS=20
 
 mkdir -p "$HISTDIR" "$CONFIG_DIR"
 chmod 700 "$HISTDIR"
-
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    {
-        echo "MAX_ENTRIES=$DEFAULT_MAX_ENTRIES"
-        echo "EXPIRY_MINUTES=$DEFAULT_EXPIRY_MINUTES"
-    } > "$CONFIG_FILE"
-fi
+touch "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 
-# helpers
+# config helpers
 
-read_config() {
-    MAX_ENTRIES="$DEFAULT_MAX_ENTRIES"
-    EXPIRY_MINUTES="$DEFAULT_EXPIRY_MINUTES"
-    if [[ -f "$CONFIG_FILE" ]]; then
-        # shellcheck disable=SC1090
-        source "$CONFIG_FILE" 2>/dev/null || true
+config_get_int() {
+    # config_get_int KEY DEFAULT
+    #
+    # Reads one integer setting. The config file is parsed, never sourced:
+    # sourcing would execute it as shell on every poll, which is a code
+    # execution path nobody wants in a tool that handles secrets.
+    local key="$1" default="$2" value
+    value=$(grep -E "^${key}=" "$CONFIG_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$value"
+    else
+        printf '%s' "$default"
     fi
+}
+
+# entry helpers
+
+list_entries() {
+    # Newest first, one absolute path per line.
+    #
+    # Matching on '[0-9]*' selects timestamp-named entries and excludes the
+    # pause flag without needing to filter it out afterwards.
+    find "$HISTDIR" -maxdepth 1 -type f -name '[0-9]*' -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | cut -d' ' -f2-
 }
 
 is_paused() {
     [[ -f "$PAUSE_FILE" ]]
 }
 
+notify() {
+    notify-send "ShadowClip" "$1" 2>/dev/null || true
+}
+
+looks_like_secret() {
+    local value="$1" pattern
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+        if printf '%s' "${value:0:SECRET_SCAN_CHARS}" | grep -Eqi -- "$pattern"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 prune_old_entries() {
-    read_config
-    ls -t "$HISTDIR" 2>/dev/null | grep -v '^\.paused$' | tail -n +"$((MAX_ENTRIES + 1))" | while read -r old_file; do
-        rm -f "$HISTDIR/$old_file"
+    local max_entries
+    max_entries=$(config_get_int MAX_ENTRIES "$DEFAULT_MAX_ENTRIES")
+    list_entries | tail -n +"$((max_entries + 1))" | while read -r old_file; do
+        rm -f "$old_file"
     done
 }
 
 expire_stale_entries() {
-    read_config
-    [[ "$EXPIRY_MINUTES" -le 0 ]] && return 0
-    find "$HISTDIR" -maxdepth 1 -type f ! -name '.paused' -mmin +"$EXPIRY_MINUTES" -delete 2>/dev/null || true
+    local expiry
+    expiry=$(config_get_int EXPIRY_MINUTES "$DEFAULT_EXPIRY_MINUTES")
+    [[ "$expiry" -le 0 ]] && return 0
+    find "$HISTDIR" -maxdepth 1 -type f -name '[0-9]*' -mmin +"$expiry" -delete 2>/dev/null || true
 }
 
 # main loop
@@ -95,11 +144,19 @@ while true; do
         current_value=$(xclip -selection clipboard -o 2>/dev/null || true)
 
         if [[ -n "$current_value" && "$current_value" != "$last_value" ]]; then
+            # Record the value as seen either way, so a skipped secret is not
+            # re-tested on every single poll until the clipboard changes.
             last_value="$current_value"
-            timestamp=$(date +%s%N)
-            printf '%s' "$current_value" > "$HISTDIR/$timestamp"
-            chmod 600 "$HISTDIR/$timestamp"
-            prune_old_entries
+
+            filter_on=$(config_get_int SECRET_FILTER "$DEFAULT_SECRET_FILTER")
+            if [[ "$filter_on" -eq 1 ]] && looks_like_secret "$current_value"; then
+                notify "Skipped a copied value that looks like a credential"
+            else
+                timestamp=$(date +%s%N)
+                printf '%s' "$current_value" > "$HISTDIR/$timestamp"
+                chmod 600 "$HISTDIR/$timestamp"
+                prune_old_entries
+            fi
         fi
     fi
 

@@ -24,12 +24,13 @@
 
 ## Version 0.3
 
-- [ ] Bind toggle script to a hotkey during install
-- [ ] Parse the config file instead of sourcing it
-- [ ] Install script to replace the manual copy steps
-- [ ] Secret detection to skip capturing likely credentials
-- [ ] Optional tmpfs-backed history directory
-- [ ] Shellcheck clean across all scripts
+- [x] Bind both hotkeys during install
+- [x] Parse the config file instead of sourcing it
+- [x] Atomic config writes that upsert
+- [x] Install script to replace the manual copy steps
+- [x] Secret detection to skip capturing likely credentials
+- [x] tmpfs-backed history directory
+- [x] Shellcheck clean across all scripts
 
 ---
 
@@ -37,14 +38,16 @@
 
 - [ ] Wayland support via wl-clipboard
 - [ ] Per-entry pinning so a chosen entry survives pruning and expiry
-- [ ] Entry search across full content rather than the preview
+- [ ] Search across full entry content rather than the preview
 - [ ] Configurable preview length
+- [ ] User-editable secret patterns in the config file
+- [ ] Uninstall script
 
 ---
 
 ## Version 1.0
 
-- [ ] Encrypted history at rest
-- [ ] Automated test suite
+- [ ] Automated test suite for config parsing and secret matching
+- [ ] Encrypted history for the persistent storage mode
 - [ ] Packaged install
 - [ ] Configuration documented in one place

@@ -1,9 +1,12 @@
 [Unit]
 Description=ShadowClip clipboard history daemon
+After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 ExecStart=%h/bin/shadowclip-daemon.sh
 Restart=always
+RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
