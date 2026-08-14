@@ -143,6 +143,12 @@ reliable link between what the user picked and what is on disk.
 Action rows are appended after the entries, so any index below the entry
 count is an entry and anything above it is an action.
 
+The two counts involved are not the same number. Entry indices are bounded
+by the entry count, but action indices are offset by the number of rows
+rendered above them, and an empty history still renders one row: the
+placeholder. Any future row that is neither an entry nor an action has to be
+added to that offset as well.
+
 ### Honest about what it is
 
 A clipboard history tool converts an ephemeral secret into a persistent one.
@@ -189,6 +195,10 @@ user service, and binds both hotkeys through xfconf on Xfce.
 
 Never overwrites an existing shortcut. A key combination already bound to
 something else is reported and left alone.
+
+Also the update path. It stops the daemon before replacing the scripts and
+restarts it afterwards, so re-running it is how a new version is deployed.
+Nothing has to be uninstalled first.
 
 ### shadowclip.rasi
 

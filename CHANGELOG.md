@@ -1,5 +1,35 @@
 # Changelog
 
+## Version 0.3.1
+
+Fix release. No new features.
+
+### Fixed
+
+- Picker action rows were indexed from the entry count rather than the number
+  of rows rendered. An empty history still draws a placeholder row, so every
+  action was shifted down by one: "Set max entries" opened the expiry prompt,
+  "Secret filter" toggled pause, and "Clear all history" matched nothing and
+  did nothing. Only affected an empty history, which is the first screen a
+  new install shows.
+- Cancelling a number prompt, or answering it with something non-numeric,
+  ended the picker. `prompt_number` returned non-zero and the caller's
+  command substitution failed under `set -e`, so the "Unchanged" notification
+  it was meant to trigger could never appear.
+- Cancelling the main picker ended the script at the rofi assignment for the
+  same reason, leaving the empty-selection check unreachable.
+- Re-running the installer did not update a running daemon. `enable --now`
+  starts a stopped service but leaves a running one alone, so the old script
+  stayed in memory.
+- The installer replaced `shadowclip-daemon.sh` while the daemon was running.
+  `install` rewrites the destination in place and bash reads a script as it
+  executes, so a live daemon could read across both versions.
+
+### Changed
+
+- Re-running `shadowclip-install.sh` is now the supported way to update.
+  It stops the daemon, replaces the files and restarts.
+
 ## Version 0.3.0
 
 Hardening and installation release.

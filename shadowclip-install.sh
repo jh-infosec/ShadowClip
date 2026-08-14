@@ -61,6 +61,13 @@ check_dependencies() {
 install_files() {
     say ""
     say "== scripts =="
+    # Stop the daemon first. `install` truncates and rewrites the destination
+    # in place, and bash reads a script incrementally as it runs, so
+    # overwriting shadowclip-daemon.sh underneath a live daemon can feed it
+    # half of the old file and half of the new one.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user stop shadowclip.service 2>/dev/null || true
+    fi
     mkdir -p "$BINDIR"
     for script in "${SCRIPTS[@]}"; do
         install -m 755 "$SOURCE_DIR/$script" "$BINDIR/$script"
@@ -83,8 +90,12 @@ install_service() {
     mkdir -p "$SYSTEMD_USER_DIR"
     install -m 644 "$SOURCE_DIR/shadowclip.service" "$SYSTEMD_USER_DIR/shadowclip.service"
     systemctl --user daemon-reload
-    systemctl --user enable --now shadowclip.service
-    say "enabled shadowclip.service"
+    # enable, then restart rather than `enable --now`. `--now` starts a
+    # stopped service but leaves a running one alone, so re-running the
+    # installer to pick up new scripts left the old daemon in memory.
+    systemctl --user enable shadowclip.service
+    systemctl --user restart shadowclip.service
+    say "enabled and restarted shadowclip.service"
     if systemctl --user is-active --quiet shadowclip.service; then
         say "daemon is running"
     else

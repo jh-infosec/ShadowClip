@@ -103,10 +103,19 @@ notify() {
 }
 
 prompt_number() {
-    # prompt_number PROMPT -- returns a non-negative integer, or nothing
+    # prompt_number PROMPT -- prints a non-negative integer, or nothing
+    #
+    # This function never fails, and that is the point. Rofi exits non-zero
+    # when the prompt is cancelled, and a non-numeric answer used to leave
+    # the function returning 1. Either way the caller's `x=$(prompt_number)`
+    # assignment failed, and under set -e the picker ended right there --
+    # before the caller could tell the user that nothing had changed.
     local answer
-    answer=$(printf '' | rofi -dmenu -theme "$THEME" -p "$1")
-    [[ "$answer" =~ ^[0-9]+$ ]] && printf '%s' "$answer"
+    answer=$(printf '' | rofi -dmenu -theme "$THEME" -p "$1" || true)
+    if [[ "$answer" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$answer"
+    fi
+    return 0
 }
 
 # actions
@@ -217,13 +226,23 @@ show_picker() {
         filter_label="🛡  Secret filter: off"
     fi
 
+    # Action rows are indexed from the number of rows rendered above them,
+    # which is not the same as the number of entries. An empty history still
+    # renders one row, the "(no clipboard history yet)" placeholder, so
+    # indexing from $n shifted every action down by one and the picker
+    # dispatched the wrong one on exactly the screen a new user sees first.
+    local row_offset=$n
+    if [[ $n -eq 0 ]]; then
+        row_offset=1
+    fi
+
     # action rows, always appended at the bottom in this order:
-    #   [n]   separator (inert)
-    #   [n+1] set max entries stored
-    #   [n+2] set auto-expiry minutes
-    #   [n+3] secret filter on / off
-    #   [n+4] pause / resume capturing
-    #   [n+5] clear all history
+    #   [row_offset]   separator (inert)
+    #   [row_offset+1] set max entries stored
+    #   [row_offset+2] set auto-expiry minutes
+    #   [row_offset+3] secret filter on / off
+    #   [row_offset+4] pause / resume capturing
+    #   [row_offset+5] clear all history
     list+="<span foreground='#006618'>──────────────────────</span>"$'\n'
     list+="⚙  Set max entries stored  (currently: ${max_entries})"$'\n'
     list+="⏱  Set auto-expiry minutes  (currently: ${expiry})"$'\n'
@@ -231,19 +250,22 @@ show_picker() {
     list+="${pause_label}"$'\n'
     list+="🗑  Clear all history"$'\n'
 
-    local separator_row_index=$n
-    local settings_row_index=$((n + 1))
-    local expiry_row_index=$((n + 2))
-    local filter_row_index=$((n + 3))
-    local pause_row_index=$((n + 4))
-    local clear_row_index=$((n + 5))
+    local separator_row_index=$row_offset
+    local settings_row_index=$((row_offset + 1))
+    local expiry_row_index=$((row_offset + 2))
+    local filter_row_index=$((row_offset + 3))
+    local pause_row_index=$((row_offset + 4))
+    local clear_row_index=$((row_offset + 5))
 
     local prompt="ShadowClip"
     is_paused && prompt="ShadowClip [PAUSED]"
 
     local choice_index
+    # `|| true` for the same reason as prompt_number: rofi exits non-zero on
+    # cancel, and without it set -e ended the picker before the empty check
+    # below could run, leaving that check as dead code.
     choice_index=$(printf '%s' "$list" | rofi -dmenu -markup-rows -i \
-        -p "$prompt" -theme "$THEME" -format i)
+        -p "$prompt" -theme "$THEME" -format i || true)
 
     [[ -z "${choice_index:-}" ]] && return 0
 
