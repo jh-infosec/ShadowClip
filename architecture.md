@@ -135,19 +135,56 @@ difference between "not captured" and "not copied".
 
 ### Row index, not row text
 
-The picker calls rofi with `-format i` and matches the returned index against
-the entry count. Previews are truncated and escaped for Pango markup, so the
-displayed text cannot be matched back to a file. The index is the only
-reliable link between what the user picked and what is on disk.
+The picker calls rofi with `-format i`, so what comes back is a row index.
+Previews are truncated and escaped for Pango markup, so the displayed text
+cannot be matched back to a file. The index is the only reliable link
+between what the user picked and what is on disk.
 
-Action rows are appended after the entries, so any index below the entry
-count is an entry and anything above it is an action.
+### Rows and actions are built together
 
-The two counts involved are not the same number. Entry indices are bounded
-by the entry count, but action indices are offset by the number of rows
-rendered above them, and an empty history still renders one row: the
-placeholder. Any future row that is neither an entry nor an action has to be
-added to that offset as well.
+`add_row` appends to `ROWS` and `ACTIONS` in one call, and dispatch is a
+lookup in `ACTIONS` rather than arithmetic on the entry count.
+
+Versions up to 0.3.0 computed action indices as offsets from the number of
+entries. That held only while every row above the actions was an entry, and
+broke as soon as one was not: the empty-history placeholder shifted every
+action down by one, so on an empty list "set max entries" opened the expiry
+prompt and "clear history" matched nothing at all.
+
+A parallel array removes the class of bug rather than the instance. A row
+without an action cannot be rendered, because the same call adds both.
+
+### Pinning is a subdirectory, not a flag
+
+A pinned entry is moved into `pinned/` beneath the history directory.
+
+The daemon's prune and expiry both select with `-maxdepth 1 -type f`, so a
+pinned entry is invisible to them without the daemon containing a single
+line about pinning. Clearing history uses the same constraint and therefore
+leaves pins alone, which is the point: clearing is the routine action and
+pinned entries are the ones marked as worth surviving it.
+
+Moving rather than copying means an entry appears in exactly one section,
+so there is no question of which copy is current.
+
+### Settings live behind one row
+
+The main list shows clips. Everything else is one "Settings and actions" row
+that opens a second menu.
+
+Entries are what the picker is for, and a hotkey pressed mid-task should
+land on them, not on six configuration rows. The submenu is built by the
+same `add_row` mechanism, so it inherits the same dispatch guarantees.
+
+### Window size is a setting, not a theme edit
+
+`WINDOW_WIDTH` and `LIST_LINES` are passed to rofi with `-theme-str`, which
+overrides the corresponding rules in the theme file.
+
+Rofi windows cannot be dragged to resize, so this is the closest equivalent.
+Keeping it in the config rather than the theme means it can be changed from
+the popup, and a user editing the theme for colours does not have to think
+about geometry.
 
 ### Honest about what it is
 
@@ -175,9 +212,18 @@ rather than on every poll until the clipboard changes.
 
 ### shadowclip-picker.sh
 
-Builds the rofi menu, handles the selection and owns every user-facing
-action: restore an entry, set max entries, set expiry minutes, toggle the
-secret filter, pause or resume, clear history.
+Builds the rofi menus, handles the selection and owns every user-facing
+action: restore an entry, pin and unpin, set max entries, set expiry
+minutes, toggle the secret filter, pause or resume, set window width and
+row count, unpin all, clear history.
+
+Two menus. The main one lists pinned entries, then history, then a single
+row into the settings menu. `Alt+p` pins or unpins whichever row is
+highlighted; rofi reports it as exit code 10.
+
+`run_rofi` returns its result in globals rather than on stdout, because a
+caller writing `i=$(run_rofi ...)` would run it in a subshell and the exit
+status carrying the pin key would be set and discarded there.
 
 Restores with `xclip -l 1` so the selection is served once and then released.
 Without it some xclip builds hand ownership back when the picker exits,
@@ -216,9 +262,10 @@ before an X display exists for xclip to talk to.
 | Path | Purpose | Permissions |
 |---|---|---|
 | `$XDG_RUNTIME_DIR/shadowclip/` | history directory, one file per entry | `700` |
+| `$XDG_RUNTIME_DIR/shadowclip/pinned/` | pinned entries, exempt from prune, expiry and clear | `700` |
 | `$XDG_RUNTIME_DIR/shadowclip/<ns-timestamp>` | one clipboard entry, plain text | `600` |
 | `$XDG_RUNTIME_DIR/shadowclip/.paused` | pause flag, presence is the state | `600` |
-| `~/.config/shadowclip/config` | `MAX_ENTRIES`, `EXPIRY_MINUTES`, `SECRET_FILTER` | `600` |
+| `~/.config/shadowclip/config` | `MAX_ENTRIES`, `EXPIRY_MINUTES`, `SECRET_FILTER`, `WINDOW_WIDTH`, `LIST_LINES` | `600` |
 
 Entry filenames are nanosecond timestamps. This gives ordering for free,
 guarantees no spaces or shell metacharacters in a filename, and lets
@@ -283,6 +330,18 @@ convenience, not a security control.
 
 xclip is an X11 client. Wayland sessions require wl-clipboard and a different
 selection model.
+
+### Pinned entries do not survive logout either
+
+Pinning exempts an entry from pruning, expiry and clearing. It does not move
+it out of tmpfs, so a pin is lost at logout like everything else. Persistent
+pins would mean writing chosen clipboard values to the SSD, which is the
+tradeoff the storage design exists to avoid.
+
+### The window cannot be dragged to resize
+
+Rofi has no resizable window. `WINDOW_WIDTH` and `LIST_LINES` change the
+geometry, and the popup is redrawn at the new size next time it opens.
 
 ### Up to a 0.5 second capture delay
 

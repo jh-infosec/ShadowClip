@@ -36,8 +36,10 @@
 
 ## Version 0.4
 
+- [x] Per-entry pinning so a chosen entry survives pruning and expiry
+- [x] Settings moved behind their own menu
+- [x] Configurable window width and row count
 - [ ] Wayland support via wl-clipboard
-- [ ] Per-entry pinning so a chosen entry survives pruning and expiry
 - [ ] Search across full entry content rather than the preview
 - [ ] Configurable preview length
 - [ ] User-editable secret patterns in the config file

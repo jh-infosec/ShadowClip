@@ -1,5 +1,45 @@
 # Changelog
 
+## Version 0.4.0
+
+Pinning, a settings menu, and a resizable popup.
+
+### Added
+
+- Pin an entry with `Alt+p` from the picker. Pinned entries are listed first
+  in cyan, and are exempt from pruning, auto-expiry and "clear all history"
+- `Alt+p` on an already-pinned entry unpins it, returning it to normal
+  history
+- "Unpin all" action in the settings menu
+- Settings menu. The main list now shows clips and one row into a second
+  menu holding every setting and action
+- `WINDOW_WIDTH` and `LIST_LINES` config keys, both settable from the
+  settings menu, so the popup can be resized without editing the theme
+- Prompt now reads `ShadowClip:` with a separator before the search text
+
+### Changed
+
+- Picker rows and their actions are built together in `add_row` and
+  dispatched by lookup, replacing the index arithmetic that caused the
+  v0.3.0 empty-history bug. A row and its action can no longer drift apart
+- `run_rofi` returns its result in globals. Returning it on stdout would put
+  the call in a subshell, where the exit status carrying the pin key is
+  discarded
+- Settings prompts and both menus honour the configured window size
+
+### Notes
+
+Pinning exempts an entry from every automatic deletion, but it does not move
+it out of tmpfs, so pins are still lost at logout. Persistent pins would mean
+writing chosen clipboard values to the SSD, which is exactly the tradeoff the
+storage design avoids.
+
+Rofi has no draggable window. `WINDOW_WIDTH` and `LIST_LINES` are as close to
+resizing as the toolkit allows, and take effect the next time the popup opens.
+
+If rofi reports a keybinding conflict on startup, change `PIN_KEY` near the
+top of the picker to something free, or to rofi's own default of `Alt+1`.
+
 ## Version 0.3.1
 
 Fix release. No new features.

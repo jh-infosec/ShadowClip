@@ -35,6 +35,10 @@ It is a convenience tool with security controls, not a secrets manager.
 ## Current Features
 
 - Numbered history, 1 is most recent, newest entry emphasised in bold
+- Pin a clip with `Alt+p` so it is never pruned, expired or cleared
+- Pinned clips listed first in their own colour
+- Settings tucked behind one row, so the list stays clips
+- Adjustable popup width and row count, changed from the popup
 - Searchable popup on a hotkey, type to filter
 - History held in tmpfs, so nothing is written to the SSD
 - Secret filter that skips likely credentials and tells you when it does
@@ -89,7 +93,8 @@ Read this section if you use ShadowClip for pentest or CTF work.
 - Permissions are reapplied on every start, so upgrading hardens an existing
   install
 - Values matching known credential formats are never captured at all
-- Entries older than `EXPIRY_MINUTES` (default 30) are deleted automatically
+- Entries older than `EXPIRY_MINUTES` (default 30) are deleted automatically,
+  except pinned ones, which you chose to keep
 - Capturing can be paused entirely
 - The config file is parsed, not executed, so a tampered config cannot run
   code on your next clipboard poll
@@ -157,8 +162,10 @@ Planned
 
 ### v0.4
 
-- Wayland Support
 - Entry Pinning
+- Settings Menu
+- Adjustable Popup Size
+- Wayland Support
 - User-Editable Secret Patterns
 
 ### v1.0
@@ -215,19 +222,56 @@ hand in your keyboard settings.
 Copy as normal, then press the picker hotkey:
 
 ```
+ShadowClip: search clipboard history...
+
+📌 1   a clip you pinned
+   ──────── history ────────
 ➤ 1   most recent thing you copied
    2   second most recent
    3   third most recent
-   ──────────────────────
-   ⚙  Set max entries stored  (currently: 15)
-   ⏱  Set auto-expiry minutes  (currently: 30)
-   🛡  Secret filter: on
-   ⏸  Pause capturing  (expires in 30m, currently 3/15 stored)
-   🗑  Clear all history
+   ─────────────────────────
+   ⚙  Settings and actions   (Alt+p pins the highlighted clip)
 ```
 
 Type to filter, arrows and Enter to select. Selecting an entry restores it to
 the clipboard, ready to paste with `Ctrl+Shift+V` in most terminals.
+
+### Pinning
+
+Highlight a clip and press `Alt+p`. It moves to the pinned section at the
+top, in cyan, and from then on it is skipped by pruning, by auto-expiry and
+by "clear all history". Press `Alt+p` on a pinned clip to send it back to
+normal history, or use "Unpin all" in the settings menu.
+
+Useful for the thing you keep pasting all session: a target IP, a reverse
+shell one-liner, a long payload.
+
+Pinning does not make an entry persistent. History lives in tmpfs, so pins
+are gone at logout along with everything else.
+
+### Settings
+
+Everything that is not a clip lives behind the "Settings and actions" row:
+
+```
+Settings:
+
+⚙  Set max entries stored  (currently: 15)
+⏱  Set auto-expiry minutes  (currently: 30)
+🛡  Secret filter: on
+⏸  Pause capturing
+↔  Window width  (currently: 650px)
+↕  Rows before scrolling  (currently: 17)
+📌  Unpin all  (1 pinned)
+🗑  Clear all history  (pinned entries kept)
+←  Back to clips
+```
+
+### Resizing
+
+Width and row count are settings rather than theme edits, so they change from
+the popup and apply the next time it opens. Rofi windows cannot be dragged to
+resize, so this is the closest equivalent.
 
 While paused the prompt reads `ShadowClip [PAUSED]` and the pause row becomes
 "Resume capturing".
@@ -242,6 +286,8 @@ Settings live in `~/.config/shadowclip/config` and can be edited by hand:
 MAX_ENTRIES=15
 EXPIRY_MINUTES=30
 SECRET_FILTER=1
+WINDOW_WIDTH=650
+LIST_LINES=17
 ```
 
 Set `EXPIRY_MINUTES=0` to disable expiry, `SECRET_FILTER=0` to capture
