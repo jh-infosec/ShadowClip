@@ -39,9 +39,10 @@
 - [x] Per-entry pinning so a chosen entry survives pruning and expiry
 - [x] Settings moved behind their own menu
 - [x] Configurable window width and row count
+- [x] GTK front end with fixed toolbar, row pin icons and right-click
 - [ ] Wayland support via wl-clipboard
-- [ ] Search across full entry content rather than the preview
-- [ ] Configurable preview length
+- [x] Search across full entry content rather than the preview
+- [x] Configurable preview length
 - [ ] User-editable secret patterns in the config file
 - [ ] Uninstall script
 

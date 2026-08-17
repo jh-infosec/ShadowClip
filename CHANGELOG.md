@@ -1,5 +1,89 @@
 # Changelog
 
+## Version 0.5.0
+
+The picker is now a GTK3 window instead of a rofi menu. Everything behind it
+is unchanged: same daemon, same tmpfs history, same pinned subdirectory, same
+config file and secret filter. Only the front end changed.
+
+### Why
+
+Rofi is one scrolling list. It cannot keep a toolbar visible while the list
+scrolls, has no per-row right-click, and no per-row clickable icon. Pinning
+had become a button-then-list workaround for all three. Those interactions are
+what a real window gives for free, so the front end moved to GTK.
+
+### Added
+
+- `shadowclip-picker.py`, a GTK3 picker. `shadowclip-picker.sh` is now a thin
+  launcher that execs it, so the hotkey and installer did not change.
+- Toolbar with "Pin selected" and "Settings", fixed above the list and always
+  visible while scrolling.
+- A pin icon on every row that toggles pin state in place on click. Pinned
+  rows show it lit in red, unpinned rows dimmed.
+- Right-click menu on each row: pin or unpin, restore, delete.
+- Drag to resize. The window remembers its size in `WINDOW_HEIGHT` and
+  `WINDOW_WIDTH`.
+- Live search box that filters the full entry text, not just the preview.
+- Settings dialog for max entries, expiry, preview length and the secret
+  filter switch.
+- `PREVIEW_CHARS` and `WINDOW_HEIGHT` config keys.
+
+### Changed
+
+- Left-click or Enter on a row restores it and closes, the same fast path as
+  before.
+- Dependency is now GTK3 for Python (`python3-gi`, `gir1.2-gtk-3.0`) instead
+  of rofi. The installer checks for it.
+
+### Removed
+
+- `shadowclip.rasi`. Styling is now CSS inside the picker.
+- The rofi dependency.
+
+### Notes
+
+Still X11 via xclip, still tmpfs history, still lost at logout. The move to
+GTK does not change any of that. Ctrl+P pins the selected row and Escape
+closes, so the common actions remain reachable from the keyboard.
+
+## Version 0.4.1
+
+Fixes a regression that made pasting impossible, and reworks how rows are
+coloured.
+
+### Fixed
+
+- Restoring an entry left nothing to paste. Versions 0.3.0 to 0.4.0 restored
+  with `xclip -l 1`, which serves the selection exactly once and then exits.
+  The daemon reads the clipboard every 0.5 seconds, so the daemon's own next
+  poll consumed that single serving and xclip was gone before the user could
+  paste. Restoring is now unlimited, with `setsid` doing what `-l 1` was
+  actually reaching for: keeping xclip alive after the picker exits.
+- A highlighted pinned row was unreadable. Row colour came from a Pango span,
+  which applies while the row is selected too, so cyan text sat on the bright
+  green selection bar.
+
+### Added
+
+- "PIN or unpin a clip" row in the main menu, opening a list of clips to pin
+  or unpin. Pinning no longer requires the keyboard.
+- `PIN_KEY` config key, so the shortcut can be changed without editing the
+  script.
+
+### Changed
+
+- Rows are marked with rofi's own `urgent` and `active` classes instead of
+  Pango colour spans, so the theme defines each state including selected.
+  Pinned rows and the PIN button are red, inverting to white on red when
+  highlighted. Separators and menu rows are dimmed.
+- Theme gains `urgent` and `active` rules with their selected variants.
+
+### Notes
+
+Rofi has no right-click context menu, so pinning by mouse is a button and
+then a list rather than a context menu on the row itself.
+
 ## Version 0.4.0
 
 Pinning, a settings menu, and a resizable popup.

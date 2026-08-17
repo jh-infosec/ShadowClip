@@ -28,6 +28,7 @@ SOURCE_DIR="$(dirname "$(readlink -f "$0")")"
 BINDIR="$SHADOWCLIP_BINDIR"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 SCRIPTS=(shadowclip-daemon.sh shadowclip-picker.sh shadowclip-toggle.sh)
+EXTRA=(shadowclip-picker.py)
 
 # helpers
 
@@ -48,7 +49,12 @@ check_dependencies() {
     say "== dependencies =="
     local failed=0
     require xclip xclip || failed=1
-    require rofi rofi || failed=1
+    require python3 python3 || failed=1
+    if ! python3 -c "import gi; gi.require_version('"'"'Gtk'"'"','"'"'3.0'"'"')" 2>/dev/null; then
+        say "missing dependency: GTK3 for Python -- install it with:"
+        say "  sudo apt install python3-gi gir1.2-gtk-3.0"
+        failed=1
+    fi
     command -v notify-send >/dev/null 2>&1 \
         || say "note: notify-send not found, notifications will be skipped"
     if [[ $failed -eq 1 ]]; then
@@ -73,10 +79,10 @@ install_files() {
         install -m 755 "$SOURCE_DIR/$script" "$BINDIR/$script"
         say "installed $BINDIR/$script"
     done
-    # The picker resolves the theme relative to its own location, so the
-    # theme has to land in the same directory as the scripts.
-    install -m 644 "$SOURCE_DIR/shadowclip.rasi" "$BINDIR/shadowclip.rasi"
-    say "installed $BINDIR/shadowclip.rasi"
+    for extra in "${EXTRA[@]}"; do
+        install -m 755 "$SOURCE_DIR/$extra" "$BINDIR/$extra"
+        say "installed $BINDIR/$extra"
+    done
 }
 
 install_service() {

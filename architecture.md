@@ -3,14 +3,15 @@
 ## Overview
 
 ShadowClip is a clipboard history tool for X11 desktops. A background daemon
-records clipboard changes, and a rofi-based picker lets the user search that
+records clipboard changes, and a GTK picker lets the user search that
 history and restore any entry.
 
 This document is the source of truth for the project architecture. Where this
 document and the code disagree, one of them is wrong and should be corrected
 deliberately rather than left to drift.
 
-The project consists of six files:
+The picker is a GTK3 program; the daemon and the rest are shell. The
+project consists of these components:
 
 ```
         X11 Clipboard
@@ -31,7 +32,7 @@ The project consists of six files:
               ▼                              │
      ┌─────────────────┐              ┌──────┴──────┐
      │     Picker      │              │   Toggle    │
-     │  (rofi + rasi)  │              │  (hotkey)   │
+     │    (GTK3)       │              │  (hotkey)   │
      └────────┬────────┘              └─────────────┘
               │ restore
               ▼
@@ -133,26 +134,16 @@ When a value is skipped the user is notified. A history that silently omits
 something is worse than one that stores it, because the user cannot tell the
 difference between "not captured" and "not copied".
 
-### Row index, not row text
+### The picker is a separate front end
 
-The picker calls rofi with `-format i`, so what comes back is a row index.
-Previews are truncated and escaped for Pango markup, so the displayed text
-cannot be matched back to a file. The index is the only reliable link
-between what the user picked and what is on disk.
+The picker is the only component a person interacts with, and the only one
+that is not shell. It reads the same history directory, pinned subdirectory
+and config file the daemon uses, by the same rules, and never talks to the
+daemon directly.
 
-### Rows and actions are built together
-
-`add_row` appends to `ROWS` and `ACTIONS` in one call, and dispatch is a
-lookup in `ACTIONS` rather than arithmetic on the entry count.
-
-Versions up to 0.3.0 computed action indices as offsets from the number of
-entries. That held only while every row above the actions was an entry, and
-broke as soon as one was not: the empty-history placeholder shifted every
-action down by one, so on an empty list "set max entries" opened the expiry
-prompt and "clear history" matched nothing at all.
-
-A parallel array removes the class of bug rather than the instance. A row
-without an action cannot be rendered, because the same call adds both.
+Because the contract is entirely on the filesystem, the front end was swapped
+from rofi to GTK in 0.5.0 without the daemon changing at all. Anything that
+reads those files the same way could replace it again.
 
 ### Pinning is a subdirectory, not a flag
 
@@ -176,15 +167,11 @@ Entries are what the picker is for, and a hotkey pressed mid-task should
 land on them, not on six configuration rows. The submenu is built by the
 same `add_row` mechanism, so it inherits the same dispatch guarantees.
 
-### Window size is a setting, not a theme edit
+### Window size is a saved setting
 
-`WINDOW_WIDTH` and `LIST_LINES` are passed to rofi with `-theme-str`, which
-overrides the corresponding rules in the theme file.
-
-Rofi windows cannot be dragged to resize, so this is the closest equivalent.
-Keeping it in the config rather than the theme means it can be changed from
-the popup, and a user editing the theme for colours does not have to think
-about geometry.
+`WINDOW_WIDTH` and `WINDOW_HEIGHT` are written when the user drags the window
+and read back when it next opens, so the window remembers its size. GTK
+handles the resize itself; the config only persists it.
 
 ### Honest about what it is
 
@@ -210,24 +197,27 @@ minutes.
 A skipped secret is recorded in `last_value` anyway, so it is tested once
 rather than on every poll until the clipboard changes.
 
+### shadowclip-picker.py
+
+The GTK3 picker. Lists pinned entries then history, each row carrying its
+file path. Left-click or Enter restores an entry and closes. A per-row pin
+icon, a "Pin selected" toolbar button, a right-click menu and Ctrl+P all
+toggle pinning. The toolbar and search box are siblings of the scrolling
+list, not inside it, so they stay put while it scrolls -- the specific thing
+rofi could not do.
+
+Config is read and written by the same parse-never-source rule as the shell:
+`config_get_int` validates each value and falls back to the default,
+`config_set_int` upserts atomically through a temp file and rename.
+
+Restores with a detached `setsid xclip -i` and no read limit. A limit would
+be consumed by the daemon's own poll before the user could paste, which was
+the 0.4.x paste bug.
+
 ### shadowclip-picker.sh
 
-Builds the rofi menus, handles the selection and owns every user-facing
-action: restore an entry, pin and unpin, set max entries, set expiry
-minutes, toggle the secret filter, pause or resume, set window width and
-row count, unpin all, clear history.
-
-Two menus. The main one lists pinned entries, then history, then a single
-row into the settings menu. `Alt+p` pins or unpins whichever row is
-highlighted; rofi reports it as exit code 10.
-
-`run_rofi` returns its result in globals rather than on stdout, because a
-caller writing `i=$(run_rofi ...)` would run it in a subshell and the exit
-status carrying the pin key would be set and discarded there.
-
-Restores with `xclip -l 1` so the selection is served once and then released.
-Without it some xclip builds hand ownership back when the picker exits,
-leaving the clipboard empty after the first paste.
+A thin launcher that execs `shadowclip-picker.py` from the same directory, so
+the hotkey binding and installer did not change when the front end did.
 
 ### shadowclip-toggle.sh
 
@@ -246,11 +236,6 @@ Also the update path. It stops the daemon before replacing the scripts and
 restarts it afterwards, so re-running it is how a new version is deployed.
 Nothing has to be uninstalled first.
 
-### shadowclip.rasi
-
-The rofi theme. Black background, green text, alternating row shading so
-entries stay distinguishable, and an inverted selected row.
-
 ### shadowclip.service
 
 systemd user unit that starts the daemon on login and restarts it on failure.
@@ -265,7 +250,7 @@ before an X display exists for xclip to talk to.
 | `$XDG_RUNTIME_DIR/shadowclip/pinned/` | pinned entries, exempt from prune, expiry and clear | `700` |
 | `$XDG_RUNTIME_DIR/shadowclip/<ns-timestamp>` | one clipboard entry, plain text | `600` |
 | `$XDG_RUNTIME_DIR/shadowclip/.paused` | pause flag, presence is the state | `600` |
-| `~/.config/shadowclip/config` | `MAX_ENTRIES`, `EXPIRY_MINUTES`, `SECRET_FILTER`, `WINDOW_WIDTH`, `LIST_LINES` | `600` |
+| `~/.config/shadowclip/config` | `MAX_ENTRIES`, `EXPIRY_MINUTES`, `SECRET_FILTER`, `WINDOW_WIDTH`, `WINDOW_HEIGHT`, `PREVIEW_CHARS` | `600` |
 
 Entry filenames are nanosecond timestamps. This gives ordering for free,
 guarantees no spaces or shell metacharacters in a filename, and lets
@@ -294,9 +279,9 @@ flag without a separate filter.
 3. Each entry truncated to `PREVIEW_CHARS` and escaped for Pango markup
 4. Entry rows built, newest emphasised
 5. Action rows appended and their indices recorded
-6. Rofi displays the menu and returns a row index
-7. Index below the entry count restores that entry to the clipboard
-8. Index above the entry count dispatches the matching action
+6. The window shows the rows and the user activates one
+7. Activating a row restores that entry to the clipboard and closes
+8. The toolbar, row icons and right-click menu drive pin, settings and delete
 
 ## Known Constraints
 
@@ -338,11 +323,6 @@ it out of tmpfs, so a pin is lost at logout like everything else. Persistent
 pins would mean writing chosen clipboard values to the SSD, which is the
 tradeoff the storage design exists to avoid.
 
-### The window cannot be dragged to resize
-
-Rofi has no resizable window. `WINDOW_WIDTH` and `LIST_LINES` change the
-geometry, and the popup is redrawn at the new size next time it opens.
-
 ### Up to a 0.5 second capture delay
 
 A copy made immediately before the hotkey may not appear yet. This is the
@@ -358,8 +338,8 @@ and the commands printed for manual binding.
 The following files are part of the project structure and must be preserved:
 
 ```
-shadowclip-daemon.sh    shadowclip-picker.sh    shadowclip-toggle.sh
-shadowclip-install.sh   shadowclip.rasi         shadowclip.service
+shadowclip-daemon.sh    shadowclip-picker.sh    shadowclip-picker.py
+shadowclip-toggle.sh    shadowclip-install.sh   shadowclip.service
 architecture.md         README.md               CHANGELOG.md
 ROADMAP.md
 ```

@@ -35,11 +35,12 @@ It is a convenience tool with security controls, not a secrets manager.
 ## Current Features
 
 - Numbered history, 1 is most recent, newest entry emphasised in bold
-- Pin a clip with `Alt+p` so it is never pruned, expired or cleared
-- Pinned clips listed first in their own colour
-- Settings tucked behind one row, so the list stays clips
-- Adjustable popup width and row count, changed from the popup
-- Searchable popup on a hotkey, type to filter
+- Pin a clip from a per-row icon, a toolbar button, right-click, or Ctrl+P
+- Pinned clips listed first, shown in red
+- Toolbar with Pin and Settings that stays put while the list scrolls
+- Right-click any row to pin, restore or delete
+- Drag to resize; the window remembers its size
+- GTK window on a hotkey, with a search box that filters full entry text
 - History held in tmpfs, so nothing is written to the SSD
 - Secret filter that skips likely credentials and tells you when it does
 - Auto-expiry of entries older than a configurable deadline
@@ -47,7 +48,7 @@ It is a convenience tool with security controls, not a secrets manager.
 - Configurable maximum entries, changed from the popup
 - Owner-only permissions on the history directory and every entry
 - One-command install that binds both hotkeys for you
-- Black and green terminal theme with alternating row shading
+- Black and green theme
 
 ---
 
@@ -127,9 +128,8 @@ Not capturing a secret is reliable. Deleting one is not.
 
 Current stack
 
-- Bash
+- Bash daemon, Python GTK3 picker
 - xclip
-- rofi
 - systemd user services
 - xfconf for hotkey binding
 
@@ -182,7 +182,7 @@ Install the dependencies
 
 ```bash
 sudo apt update
-sudo apt install xclip rofi
+sudo apt install xclip python3-gi gir1.2-gtk-3.0
 ```
 
 Run the installer
@@ -219,59 +219,46 @@ hand in your keyboard settings.
 
 ## Using ShadowClip
 
-Copy as normal, then press the picker hotkey:
+Copy as normal, then press the picker hotkey. A window opens with your history
+newest first, pinned entries on top, and a search box. Type to filter, click a
+row (or select it and press Enter) to restore it to the clipboard and close.
 
-```
-ShadowClip: search clipboard history...
+The toolbar across the top stays visible while the list scrolls:
 
-📌 1   a clip you pinned
-   ──────── history ────────
-➤ 1   most recent thing you copied
-   2   second most recent
-   3   third most recent
-   ─────────────────────────
-   ⚙  Settings and actions   (Alt+p pins the highlighted clip)
-```
-
-Type to filter, arrows and Enter to select. Selecting an entry restores it to
-the clipboard, ready to paste with `Ctrl+Shift+V` in most terminals.
+- **Pin selected** pins or unpins the highlighted entry
+- **Settings** opens the settings dialog
 
 ### Pinning
 
-Highlight a clip and press `Alt+p`. It moves to the pinned section at the
-top, in cyan, and from then on it is skipped by pruning, by auto-expiry and
-by "clear all history". Press `Alt+p` on a pinned clip to send it back to
-normal history, or use "Unpin all" in the settings menu.
+Four ways, whichever is nearest your hand:
 
-Useful for the thing you keep pasting all session: a target IP, a reverse
-shell one-liner, a long payload.
+- click the pin icon at the left of any row
+- select a row and click **Pin selected**
+- right-click a row and choose Pin or Unpin
+- select a row and press Ctrl+P
 
-Pinning does not make an entry persistent. History lives in tmpfs, so pins
-are gone at logout along with everything else.
+Pinned entries move to the top in red and are skipped by pruning, auto-expiry
+and clear. Pinning does not make them persistent: history lives in tmpfs, so
+pins are gone at logout like everything else.
 
-### Settings
+### Right-click
 
-Everything that is not a clip lives behind the "Settings and actions" row:
-
-```
-Settings:
-
-⚙  Set max entries stored  (currently: 15)
-⏱  Set auto-expiry minutes  (currently: 30)
-🛡  Secret filter: on
-⏸  Pause capturing
-↔  Window width  (currently: 650px)
-↕  Rows before scrolling  (currently: 17)
-📌  Unpin all  (1 pinned)
-🗑  Clear all history  (pinned entries kept)
-←  Back to clips
-```
+Right-click any row for Pin/Unpin, Restore to clipboard, and Delete.
 
 ### Resizing
 
-Width and row count are settings rather than theme edits, so they change from
-the popup and apply the next time it opens. Rofi windows cannot be dragged to
-resize, so this is the closest equivalent.
+Drag the window edges. The size is saved to `WINDOW_WIDTH` and
+`WINDOW_HEIGHT` and restored next time.
+
+### Settings
+
+Settings opens a small dialog with max entries, auto-expiry minutes, preview
+length, and a secret-filter switch. Changes are written to the config file the
+daemon already reads, so they take effect without a restart.
+
+### Resizing
+
+Drag the window edges. The new size is saved and restored next time.
 
 While paused the prompt reads `ShadowClip [PAUSED]` and the pause row becomes
 "Resume capturing".
@@ -287,7 +274,8 @@ MAX_ENTRIES=15
 EXPIRY_MINUTES=30
 SECRET_FILTER=1
 WINDOW_WIDTH=650
-LIST_LINES=17
+WINDOW_HEIGHT=520
+PREVIEW_CHARS=120
 ```
 
 Set `EXPIRY_MINUTES=0` to disable expiry, `SECRET_FILTER=0` to capture
