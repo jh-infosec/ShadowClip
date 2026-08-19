@@ -48,6 +48,19 @@
 
 ---
 
+## Version 0.5
+
+- [x] GTK3 picker replacing rofi
+- [x] Single-instance picker, hotkey toggles it closed
+- [x] Reset button, with pinned clips and the live clipboard as options
+- [x] Clear history, unpin all and pause restored after the GTK rewrite
+- [x] Readable rows while the window is unfocused
+- [x] Click away to close
+- [x] Single click selects, double click restores
+- [ ] Automated test for the bulk actions in the picker
+
+---
+
 ## Version 1.0
 
 - [ ] Automated test suite for config parsing and secret matching

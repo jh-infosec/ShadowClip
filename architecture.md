@@ -158,6 +158,74 @@ pinned entries are the ones marked as worth surviving it.
 Moving rather than copying means an entry appears in exactly one section,
 so there is no question of which copy is current.
 
+### Clearing spares pins, resetting does not
+
+Two destructive actions, deliberately distinct.
+
+Clearing is routine. It deletes unpinned entries and follows the same rule as
+prune and expiry, so a pinned entry survives it. That is the whole point of
+pinning.
+
+Reset is the escape hatch. It is the only action that destroys entries the
+user deliberately marked as worth keeping, so it confirms, states the counts,
+and makes deleting pins a checkbox rather than an assumption.
+
+Every bulk delete selects only entry files, which are named as a pure
+timestamp. `.paused` and `.picker.pid` cannot match that pattern, so control
+files survive by construction rather than by a filter that could be
+forgotten. Removing the PID lock underneath a running picker would break
+single-instance.
+
+### Clearing history does not clear the clipboard
+
+The history directory and the X11 selection are different things. Deleting
+every entry leaves whatever was copied last still sitting in the selection,
+where any application can still ask for it.
+
+Reset therefore offers to empty the selection too, and reads it back to
+confirm rather than assuming. There is no single portable way to disown an X
+selection, and reporting success while a secret is still pasteable would be
+the worst failure this tool could have.
+
+### The stylesheet covers focused and unfocused alike
+
+GTK applies a `:backdrop` state to every widget in a window that does not have
+focus. A rule written without a backdrop twin is silently replaced by the
+desktop theme's own colour in that state.
+
+That is not cosmetic here. Until 0.5.3 the selected row kept its black text,
+meant to sit on bright green, while the theme supplied a grey background:
+unreadable, and only in the moment the user had clicked elsewhere. Pinned rows
+escaped it by accident, because red survives on grey.
+
+Every visible state therefore has a backdrop counterpart. Adding a rule means
+adding two.
+
+### Clicking away closes the picker
+
+Losing focus closes the window, the same as Escape.
+
+Closing rather than hiding follows from single-instance. The PID lock is held
+by the process, so a hidden window still holds it and the next hotkey press
+would take the toggle path and kill the hidden window instead of showing it.
+Hiding would mean reworking the SIGTERM handler to show-if-hidden, for a
+window that opens instantly.
+
+Child windows are the complication. Dialogs and the right-click menu take
+focus from the main window, so a counted guard suppresses the close while any
+of them is up. Counted, not a flag: reset opens a confirmation and then a
+summary, and the inner one closing must not re-arm the outer.
+
+### Selecting and restoring are different clicks
+
+Single click selects, double click restores and closes. Enter activates the
+selected row.
+
+GTK's default is activate-on-single-click, which made one stray click restore
+an entry and close the window before the row had been read. Restoring is the
+destructive-feeling action here, in that it replaces the clipboard, so it gets
+the deliberate gesture.
+
 ### Settings live behind one row
 
 The main list shows clips. Everything else is one "Settings and actions" row
@@ -202,7 +270,16 @@ rather than on every poll until the clipboard changes.
 The GTK3 picker. Lists pinned entries then history, each row carrying its
 file path. Left-click or Enter restores an entry and closes. A per-row pin
 icon, a "Pin selected" toolbar button, a right-click menu and Ctrl+P all
-toggle pinning. The toolbar and search box are siblings of the scrolling
+toggle pinning.
+
+The toolbar carries Pin selected, Reset and Settings. Reset is amber rather
+than the red used for pins, so a destructive control does not read as a
+pinning one. The settings dialog holds the integer settings plus the bulk
+actions: clear history, unpin all, and a capturing switch writing the same
+pause flag the toggle hotkey uses. Settings apply on Save; the actions fire
+immediately and confirm for themselves, because Cancel should never be the
+thing standing between the user and a deletion that already looked like it
+happened. The toolbar and search box are siblings of the scrolling
 list, not inside it, so they stay put while it scrolls -- the specific thing
 rofi could not do.
 
@@ -305,6 +382,16 @@ can also reach swap if the system is under memory pressure.
 It catches known credential formats. A password that looks like an ordinary
 word will be stored, and an unrecognised token format will be stored. It
 reduces accidental capture; it does not prevent it.
+
+### Reset cannot recover what it deletes
+
+There is no undo and no recycle bin. History is in tmpfs, so a deleted entry
+is gone from memory with nothing on disk to recover.
+
+### Emptying the clipboard leaves nothing to paste
+
+That is the intent when the reason for resetting is a copied secret, but it
+also means an in-progress paste is lost. It is a checkbox for that reason.
 
 ### Pause is not enforced
 

@@ -1,5 +1,91 @@
 # Changelog
 
+## Version 0.5.3
+
+Interaction fixes in the picker. Nothing else changed.
+
+### Fixed
+
+- The selected row was unreadable while the window was unfocused. GTK applies
+  a `:backdrop` state when a window loses focus, and the stylesheet had no
+  rules for it, so the desktop theme supplied the selection colour: grey,
+  under black text meant for bright green. Pinned rows escaped it only
+  because their red label colour happens to survive on grey, which is why
+  pinning appeared to fix it. Every visible state now has a backdrop twin,
+  including the toolbar buttons.
+
+### Changed
+
+- Single click selects a row, double click restores it and closes. GTK's
+  default activates on a single click, so a stray click restored an entry and
+  closed the window before the row had been read. Enter still activates the
+  selected row, so the keyboard path is unchanged and remains the fastest.
+- Clicking away from the picker closes it, the same as Escape.
+
+### Notes
+
+Clicking away closes rather than minimises. The picker is single-instance
+through a PID lock held by the process, so a hidden window would still hold
+the lock and the next hotkey press would take the toggle path and kill it
+instead of showing it: press the key, get nothing. The window opens
+instantly, so there is nothing to gain by keeping it around.
+
+Dialogs and the right-click menu take focus from the main window, which would
+otherwise close the picker out from underneath them. A counted guard
+suppresses close-on-focus-out while any child window is up, counted rather
+than a flag because reset opens a confirmation and then a summary, and the
+inner one closing must not re-arm the outer.
+
+The close check is deferred by one main-loop pass, because a click that moves
+focus to our own menu can arrive before that menu registers as focused.
+
+## Version 0.5.2
+
+A reset button, and the three bulk actions the 0.5.0 rewrite dropped.
+
+### Added
+
+- **Reset** in the toolbar, between Pin selected and Settings. Deletes every
+  clip and starts fresh. It confirms first, states the counts, and puts each
+  destructive part behind its own checkbox: delete pinned clips as well, empty
+  the clipboard itself, and remove any on-disk history found outside tmpfs.
+- Emptying the live X11 clipboard as part of a reset. Clearing history never
+  touched the selection itself, so a credential copied a moment earlier stayed
+  pasteable by any application. The result is read back and reported honestly,
+  including when it fails.
+- Sweeping a legacy on-disk history directory at `~/.cache/shadowclip`, left
+  by a pre-0.3 install or a session with no `XDG_RUNTIME_DIR`. It is only
+  offered when it exists and is not the directory currently in use.
+
+### Fixed
+
+- **Clear all history** was lost in the 0.5.0 move from rofi to GTK and is
+  back, in the settings dialog. It spares pinned clips, as it always did.
+- **Unpin all** was lost in the same rewrite and is back.
+- **Pause and resume from the picker** was lost in the same rewrite and is
+  back as a switch in the settings dialog. The dedicated hotkey never stopped
+  working, but the README claimed the popup could do it too.
+- The `SettingsDialog` comment claimed pause and clear lived there. They did
+  not. Now they do.
+
+### Notes
+
+Reset and Clear are deliberately separate. Clearing is the routine action and
+spares pinned clips, following the same rule as pruning and expiry. Reset is
+the one action that destroys entries you deliberately marked as worth keeping,
+which is why it confirms and why deleting pins is a checkbox rather than an
+assumption.
+
+Every bulk delete removes only entry files, which are named as a pure
+timestamp. `.paused` and `.picker.pid` cannot match that pattern, so they
+survive by construction rather than by a filter that could be forgotten.
+Removing the PID lock underneath a running picker would break single-instance
+and let the hotkey stack a second window.
+
+Emptying the clipboard means there is nothing left to paste. That is the
+point when the reason for resetting is a copied secret, and it is worth
+knowing before ticking the box.
+
 ## Version 0.5.1
 
 ### Added

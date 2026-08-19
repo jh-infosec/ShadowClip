@@ -25,6 +25,7 @@
 # Requires: python3-gi, gir1.2-gtk-3.0, xclip
 #   sudo apt install python3-gi gir1.2-gtk-3.0 xclip
 
+import contextlib
 import os
 import re
 import shutil
@@ -50,6 +51,7 @@ def _runtime_base():
 
 HISTDIR = os.environ.get("SHADOWCLIP_HISTDIR", os.path.join(_runtime_base(), "shadowclip"))
 PINDIR = os.path.join(HISTDIR, "pinned")
+PAUSE_FILE = os.path.join(HISTDIR, ".paused")
 CONFIG_DIR = os.environ.get("SHADOWCLIP_CONFIG_DIR", os.path.expanduser("~/.config/shadowclip"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config")
 
@@ -168,6 +170,140 @@ def delete(path):
         pass
 
 
+# bulk actions
+#
+# Every one of these deletes only entry files, which are named as a pure
+# timestamp. `.paused` and `.picker.pid` are not, so they are untouched by
+# construction rather than by a filter that could be forgotten. Removing the
+# PID lock while the picker is running would break single-instance and let the
+# hotkey stack a second window.
+
+def clear_history():
+    """Delete unpinned entries. Pinned ones survive.
+
+    This is the routine action, and it follows the same rule as prune and
+    expiry: pinned entries are the ones marked as worth surviving it.
+    """
+    removed = 0
+    for path in list_history():
+        delete(path)
+        removed += 1
+    return removed
+
+
+def clear_pinned():
+    removed = 0
+    for path in list_pinned():
+        delete(path)
+        removed += 1
+    return removed
+
+
+def unpin_all():
+    moved = 0
+    for path in list_pinned():
+        try:
+            unpin(path)
+            moved += 1
+        except OSError:
+            pass
+    return moved
+
+
+def legacy_disk_dirs():
+    """On-disk history directories that are not the one currently in use.
+
+    History normally lives in tmpfs, so there is nothing on disk to clear.
+    The exception is `~/.cache/shadowclip`, left by a pre-0.3 install or by a
+    session where XDG_RUNTIME_DIR was unset. A reset that claims to clear
+    everything has to account for it, or the claim is false.
+
+    Compared by real path, so when ~/.cache IS the active history directory it
+    is not listed as legacy and not removed twice.
+    """
+    active = os.path.realpath(HISTDIR)
+    found = []
+    for path in (os.path.expanduser("~/.cache/shadowclip"),):
+        if os.path.isdir(path) and os.path.realpath(path) != active:
+            found.append(path)
+    return found
+
+
+def remove_disk_history():
+    removed = []
+    for path in legacy_disk_dirs():
+        try:
+            shutil.rmtree(path)
+            removed.append(path)
+        except OSError:
+            pass
+    return removed
+
+
+# pause, the same flag file the daemon and toggle script use
+
+def is_paused():
+    return os.path.exists(PAUSE_FILE)
+
+
+def set_paused(paused):
+    if paused:
+        os.makedirs(HISTDIR, exist_ok=True)
+        os.close(os.open(PAUSE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
+    else:
+        try:
+            os.remove(PAUSE_FILE)
+        except OSError:
+            pass
+
+
+# the live clipboard
+
+def clipboard_text():
+    try:
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard", "-o"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
+        )
+        return result.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def clear_clipboard():
+    """Empty the X11 clipboard selection itself, and confirm it worked.
+
+    Clearing history does not clear the clipboard. If the reason for resetting
+    is that a credential was just copied, that credential is still sitting in
+    the live selection and any application can still ask for it.
+
+    There is no single portable way to disown an X selection, so the result is
+    read back rather than assumed. Reporting success while the secret is still
+    pasteable would be worse than not offering this at all.
+
+    Returns True only if a read-back comes back empty.
+    """
+    try:
+        if shutil.which("xsel"):
+            # xsel has an explicit clear, which disowns the selection outright.
+            subprocess.run(["xsel", "--clipboard", "--clear"], timeout=2,
+                           stderr=subprocess.DEVNULL)
+        else:
+            # Take ownership serving zero bytes. Detached, for the same reason
+            # restore is: this process is about to carry on or exit.
+            proc = subprocess.Popen(
+                ["setsid", "xclip", "-selection", "clipboard", "-i"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            proc.stdin.close()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    # The new owner needs a moment to answer the read-back.
+    time.sleep(0.2)
+    return clipboard_text() == ""
+
+
 def restore_to_clipboard(path):
     # setsid detaches xclip into its own session so it outlives this process,
     # which exits immediately after. No -l limit: the daemon polls the
@@ -209,6 +345,18 @@ class PickerWindow(Gtk.Window):
 
         self.connect("destroy", lambda *_: Gtk.main_quit())
         self.connect("key-press-event", self.on_key)
+        # Clicking away closes the picker, the same as Escape.
+        #
+        # Closing rather than hiding is deliberate. The picker is
+        # single-instance through a PID lock held by the process. A hidden
+        # window still holds that lock, so the next hotkey press would take
+        # the toggle path and kill the hidden window instead of showing it:
+        # the user would press the key and get nothing. The window opens
+        # instantly, so there is nothing to gain by keeping it around.
+        # Dialogs and the right-click menu take focus from this window, which
+        # would otherwise close the picker out from underneath them.
+        self._modal_depth = 0
+        self.connect("focus-out-event", self.on_focus_out)
         # Persist the size the user drags to, so the window remembers it.
         self.connect("configure-event", self.on_configure)
         self._save_pending = False
@@ -237,6 +385,12 @@ class PickerWindow(Gtk.Window):
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.listbox = Gtk.ListBox()
         self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        # Single click selects, double click restores. GTK's default is
+        # activate-on-single-click, which made one stray click restore an
+        # entry and close the window before the user had read the row.
+        # Enter still activates the selected row, so the keyboard path is
+        # unchanged and remains the fastest way through.
+        self.listbox.set_activate_on_single_click(False)
         self.listbox.connect("row-activated", self.on_row_activated)
         scroller.add(self.listbox)
         outer.pack_start(scroller, True, True, 0)
@@ -267,10 +421,42 @@ class PickerWindow(Gtk.Window):
         .pinned label { color: #FF3355; }
         .pinned:selected { background-color: #FF3355; }
         .pinned:selected label { color: #FFFFFF; }
+
+        /* Backdrop: the state GTK applies when the window loses focus.
+           Without these rules the desktop theme supplies the selection
+           colour, which is grey, and our black selected-row text becomes
+           black on grey. Pinned rows escaped it only because their red
+           label colour happens to survive on grey.
+
+           Every state above needs its backdrop twin, or the picker looks
+           different depending on which window the user clicked last. */
+        window:backdrop { background-color: #000000; }
+        list:backdrop { background-color: #000000; }
+        label:backdrop { color: #00CC33; }
+        .num:backdrop { color: #007A3D; }
+        row:backdrop { border-bottom-color: #001a00; }
+        row:selected:backdrop { background-color: #00FF41; }
+        row:selected:backdrop label { color: #000000; }
+        .pinned:backdrop label { color: #FF3355; }
+        .pinned:selected:backdrop { background-color: #FF3355; }
+        .pinned:selected:backdrop label { color: #FFFFFF; }
+        .toolbar:backdrop { background-color: #000000; }
+        .searchbar:backdrop { background-color: #000000; }
+        .statusbar:backdrop { color: #007A3D; }
+        entry:backdrop { background-color: #001a00; color: #00FF41; }
+        .pinbtn:backdrop { color: #FF3355; }
+        .toolbtn:backdrop { color: #00FF41; background-color: #001a00;
+                            border-color: #007A3D; }
+        .pin-tool:backdrop { color: #FF3355; border-color: #FF3355; }
+        .reset-tool:backdrop { color: #FFB000; border-color: #FFB000; }
+        .danger label:backdrop { color: #FFB000; }
         .toolbtn { color: #00FF41; background-color: #001a00;
                    border: 1px solid #007A3D; padding: 4px 14px; margin: 0 4px; }
         .toolbtn:hover { background-color: #002a00; }
         .pin-tool { color: #FF3355; border-color: #FF3355; }
+        .reset-tool { color: #FFB000; border-color: #FFB000; }
+        .reset-tool:hover { background-color: #2a1f00; }
+        .danger label { color: #FFB000; }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
@@ -295,6 +481,12 @@ class PickerWindow(Gtk.Window):
         pin_btn.get_style_context().add_class("pin-tool")
         pin_btn.connect("clicked", self.on_pin_selected)
         bar.pack_start(pin_btn, False, False, 0)
+
+        reset_btn = Gtk.Button(label="\u21ba Reset")
+        reset_btn.get_style_context().add_class("toolbtn")
+        reset_btn.get_style_context().add_class("reset-tool")
+        reset_btn.connect("clicked", self.on_reset)
+        bar.pack_start(reset_btn, False, False, 0)
 
         settings_btn = Gtk.Button(label="\u2699 Settings")
         settings_btn.get_style_context().add_class("toolbtn")
@@ -428,17 +620,62 @@ class PickerWindow(Gtk.Window):
         item_del.connect("activate", lambda *_: self._delete_row(row.path))
         menu.append(item_del)
 
+        # The menu is a separate window and takes focus, so guard for as long
+        # as it is up rather than only while it is being built.
+        self._modal_depth += 1
+        menu.connect("deactivate", lambda *_: self._menu_closed())
         menu.show_all()
         menu.popup_at_pointer(None)
+
+    def _menu_closed(self):
+        self._modal_depth -= 1
+        # Dismissing the menu by clicking elsewhere should still close the
+        # picker, so re-test once the menu has gone.
+        GLib.idle_add(self._close_if_still_unfocused)
 
     def _delete_row(self, path):
         delete(path)
         self.refresh()
 
     def on_settings(self, button):
-        SettingsDialog(self).run_and_apply()
+        with self.modal():
+            SettingsDialog(self).run_and_apply()
         self.preview_chars = config_get_int("PREVIEW_CHARS")
         self.refresh()
+
+    def on_reset(self, button):
+        with self.modal():
+            changed = run_reset_dialog(self)
+        if changed:
+            self.refresh()
+
+    @contextlib.contextmanager
+    def modal(self):
+        """Suppress close-on-focus-out for the duration of a child window.
+
+        Counted rather than a boolean, because a dialog can open another one
+        (reset opens its confirmation, then its summary) and the inner one
+        closing must not re-arm the outer.
+        """
+        self._modal_depth += 1
+        try:
+            yield
+        finally:
+            self._modal_depth -= 1
+
+    def on_focus_out(self, widget, event):
+        if self._modal_depth > 0:
+            return False
+        # Defer by one main-loop pass. A click that moves focus to our own
+        # menu or dialog can land here before that window registers, so
+        # re-checking a moment later avoids closing on our own popups.
+        GLib.idle_add(self._close_if_still_unfocused)
+        return False
+
+    def _close_if_still_unfocused(self):
+        if self._modal_depth == 0 and not self.is_active():
+            self.destroy()
+        return False
 
     def on_key(self, widget, event):
         if event.keyval == Gdk.KEY_Escape:
@@ -470,10 +707,143 @@ class PickerWindow(Gtk.Window):
         return False
 
 
+# reset
+#
+# Reset is deliberately separate from "Clear history". Clearing is the routine
+# action and spares pinned entries by design. Reset is the one action that
+# destroys something the user deliberately marked as worth keeping, so it
+# confirms, states the counts, and puts each destructive part behind its own
+# checkbox rather than assuming.
+
+def run_reset_dialog(parent):
+    """Confirm and perform a reset. Returns True if anything was removed."""
+    history_count = len(list_history())
+    pinned_count = len(list_pinned())
+    disk_dirs = legacy_disk_dirs()
+
+    if not (history_count or pinned_count or disk_dirs):
+        _message(parent, "Nothing to reset", "History is already empty.")
+        return False
+
+    dialog = Gtk.Dialog(title="Reset ShadowClip", transient_for=parent, flags=0)
+    dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                       "Reset", Gtk.ResponseType.OK)
+    dialog.set_default_size(420, -1)
+    box = dialog.get_content_area()
+    box.set_spacing(8)
+    box.set_margin_top(12)
+    box.set_margin_bottom(12)
+    box.set_margin_start(14)
+    box.set_margin_end(14)
+
+    heading = Gtk.Label(xalign=0.0)
+    heading.set_markup(
+        "<b>Delete {} clip{} and start fresh?</b>".format(
+            history_count, "" if history_count == 1 else "s"))
+    heading.get_style_context().add_class("danger")
+    box.pack_start(heading, False, False, 0)
+
+    note = Gtk.Label(xalign=0.0)
+    note.set_line_wrap(True)
+    note.set_text("This cannot be undone.")
+    box.pack_start(note, False, False, 0)
+
+    pinned_check = Gtk.CheckButton(
+        label="Also delete {} pinned clip{}".format(
+            pinned_count, "" if pinned_count == 1 else "s"))
+    # Checked by default: deleting pins is the only thing that distinguishes
+    # reset from clear, so someone who wants pins kept wants Clear history.
+    pinned_check.set_active(True)
+    pinned_check.set_sensitive(pinned_count > 0)
+    if pinned_count == 0:
+        pinned_check.set_active(False)
+        pinned_check.set_label("No pinned clips")
+    box.pack_start(pinned_check, False, False, 0)
+
+    clipboard_check = Gtk.CheckButton(label="Also empty the clipboard itself")
+    clipboard_check.set_active(True)
+    clipboard_check.set_tooltip_text(
+        "Clearing history does not clear the live X11 selection. If you just "
+        "copied a credential it is still pasteable until this is done. You "
+        "will have nothing to paste afterwards.")
+    box.pack_start(clipboard_check, False, False, 0)
+
+    disk_check = None
+    if disk_dirs:
+        disk_check = Gtk.CheckButton(
+            label="Also remove on-disk history at {}".format(disk_dirs[0]))
+        disk_check.set_active(True)
+        box.pack_start(disk_check, False, False, 0)
+    else:
+        where = Gtk.Label(xalign=0.0)
+        where.set_line_wrap(True)
+        where.set_markup(
+            "<small>History is in tmpfs at {}, so there is nothing on disk "
+            "to clear.</small>".format(GLib.markup_escape_text(HISTDIR)))
+        box.pack_start(where, False, False, 0)
+
+    dialog.show_all()
+    response = dialog.run()
+    choices = {
+        "pinned": pinned_check.get_active(),
+        "clipboard": clipboard_check.get_active(),
+        "disk": bool(disk_check and disk_check.get_active()),
+    }
+    dialog.destroy()
+
+    if response != Gtk.ResponseType.OK:
+        return False
+
+    lines = []
+    lines.append("Deleted {} clip{}.".format(
+        clear_history(), "" if history_count == 1 else "s"))
+    if choices["pinned"]:
+        lines.append("Deleted {} pinned clip{}.".format(
+            clear_pinned(), "" if pinned_count == 1 else "s"))
+    if choices["disk"]:
+        removed = remove_disk_history()
+        lines.append("Removed on-disk history at {}.".format(", ".join(removed))
+                     if removed else "On-disk history could not be removed.")
+    if choices["clipboard"]:
+        # Reported honestly either way. A confirmation that says the clipboard
+        # is empty when it is not would be the worst possible failure here.
+        lines.append("Clipboard emptied." if clear_clipboard()
+                     else "Clipboard could NOT be emptied. The last copied "
+                          "value is still pasteable.")
+
+    _message(parent, "Reset complete", "\n".join(lines))
+    return True
+
+
+def _message(parent, title, text):
+    dialog = Gtk.MessageDialog(
+        transient_for=parent, flags=0, message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK, text=title,
+    )
+    dialog.format_secondary_text(text)
+    dialog.run()
+    dialog.destroy()
+
+
+def confirm(parent, title, text):
+    dialog = Gtk.MessageDialog(
+        transient_for=parent, flags=0, message_type=Gtk.MessageType.QUESTION,
+        buttons=Gtk.ButtonsType.OK_CANCEL, text=title,
+    )
+    dialog.format_secondary_text(text)
+    response = dialog.run()
+    dialog.destroy()
+    return response == Gtk.ResponseType.OK
+
+
 class SettingsDialog:
     # A plain form for the integer settings the rofi version handled through a
-    # submenu. Pause and clear live here too, since they are actions rather
-    # than list navigation.
+    # submenu, plus the bulk actions below it.
+    #
+    # Settings are applied on Save. The actions are not: they fire immediately
+    # and confirm for themselves, because "Cancel" on a dialog should never be
+    # the thing standing between the user and a deletion that already looked
+    # like it happened.
     FIELDS = [
         ("MAX_ENTRIES", "Max entries stored"),
         ("EXPIRY_MINUTES", "Auto-expiry minutes (0 = never)"),
@@ -514,6 +884,59 @@ class SettingsDialog:
         self.filter_switch.set_active(config_get_int("SECRET_FILTER") == 1)
         row.pack_start(self.filter_switch, False, False, 0)
         box.pack_start(row, False, False, 0)
+
+        # Capture pause, the same flag file the toggle hotkey writes.
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.pack_start(Gtk.Label(label="Capturing", xalign=0.0), True, True, 0)
+        self.pause_switch = Gtk.Switch()
+        self.pause_switch.set_active(not is_paused())
+        self.pause_switch.connect("notify::active", self.on_pause_toggled)
+        row.pack_start(self.pause_switch, False, False, 0)
+        box.pack_start(row, False, False, 0)
+
+        # Bulk actions. These were in the rofi settings submenu and were lost
+        # in the 0.5.0 GTK rewrite; without them the only way to remove
+        # anything was right-clicking rows one at a time.
+        box.pack_start(Gtk.Separator(), False, False, 6)
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        clear_btn = Gtk.Button(label="Clear history")
+        clear_btn.set_tooltip_text("Delete unpinned clips. Pinned clips are kept.")
+        clear_btn.connect("clicked", self.on_clear_history)
+        actions.pack_start(clear_btn, True, True, 0)
+        unpin_btn = Gtk.Button(label="Unpin all")
+        unpin_btn.connect("clicked", self.on_unpin_all)
+        actions.pack_start(unpin_btn, True, True, 0)
+        box.pack_start(actions, False, False, 0)
+
+    def on_pause_toggled(self, switch, _param):
+        # Switch on means capturing, so paused is the inverse.
+        set_paused(not switch.get_active())
+
+    def on_clear_history(self, button):
+        count = len(list_history())
+        pinned = len(list_pinned())
+        if not count:
+            _message(self.dialog, "Nothing to clear", "There are no unpinned clips.")
+            return
+        kept = "" if not pinned else " {} pinned clip{} will be kept.".format(
+            pinned, "" if pinned == 1 else "s")
+        if confirm(self.dialog, "Clear history?",
+                   "Delete {} clip{}.{}".format(
+                       count, "" if count == 1 else "s", kept)):
+            clear_history()
+            self.parent.refresh()
+
+    def on_unpin_all(self, button):
+        count = len(list_pinned())
+        if not count:
+            _message(self.dialog, "Nothing to unpin", "There are no pinned clips.")
+            return
+        if confirm(self.dialog, "Unpin all?",
+                   "Return {} pinned clip{} to normal history, where pruning "
+                   "and expiry apply again.".format(
+                       count, "" if count == 1 else "s")):
+            unpin_all()
+            self.parent.refresh()
 
     def run_and_apply(self):
         self.dialog.show_all()

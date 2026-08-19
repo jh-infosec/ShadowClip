@@ -44,7 +44,10 @@ It is a convenience tool with security controls, not a secrets manager.
 - History held in tmpfs, so nothing is written to the SSD
 - Secret filter that skips likely credentials and tells you when it does
 - Auto-expiry of entries older than a configurable deadline
-- Pause and resume capturing, from the popup or a dedicated hotkey
+- Pause and resume capturing, from the settings dialog or a dedicated hotkey
+- Clear history, keeping pinned clips, or reset everything and start fresh
+- Reset can also empty the live clipboard, so a copied secret is not left
+  pasteable
 - Configurable maximum entries, changed from the popup
 - Owner-only permissions on the history directory and every entry
 - One-command install that binds both hotkeys for you
@@ -220,12 +223,17 @@ hand in your keyboard settings.
 ## Using ShadowClip
 
 Copy as normal, then press the picker hotkey. A window opens with your history
-newest first, pinned entries on top, and a search box. Type to filter, click a
-row (or select it and press Enter) to restore it to the clipboard and close.
+newest first, pinned entries on top, and a search box. Type to filter.
+
+Single click selects a row. Double click restores it to the clipboard and
+closes, and so does Enter on the selected row.
+
+Escape closes the picker, and so does clicking anywhere outside it.
 
 The toolbar across the top stays visible while the list scrolls:
 
 - **Pin selected** pins or unpins the highlighted entry
+- **Reset** deletes everything and starts fresh
 - **Settings** opens the settings dialog
 
 ### Pinning
@@ -253,15 +261,32 @@ Drag the window edges. The size is saved to `WINDOW_WIDTH` and
 ### Settings
 
 Settings opens a small dialog with max entries, auto-expiry minutes, preview
-length, and a secret-filter switch. Changes are written to the config file the
-daemon already reads, so they take effect without a restart.
+length, a secret-filter switch and a capturing switch. Changes are written to
+the config file the daemon already reads, so they take effect without a
+restart.
 
-### Resizing
+Below them are two bulk actions. **Clear history** deletes unpinned clips and
+keeps pinned ones. **Unpin all** returns every pinned clip to normal history,
+where pruning and expiry apply to it again. Both confirm first, and both act
+immediately rather than waiting for Save.
 
-Drag the window edges. The new size is saved and restored next time.
+### Reset
 
-While paused the prompt reads `ShadowClip [PAUSED]` and the pause row becomes
-"Resume capturing".
+**Reset** in the toolbar deletes everything and starts fresh. It confirms
+first, tells you how many clips it is about to remove, and offers three
+choices:
+
+- **Also delete pinned clips.** Ticked by default. Untick it and you have
+  Clear history, so if you want your pins kept, that is the button to use.
+- **Also empty the clipboard itself.** Clearing history does not touch the
+  live X11 selection, so a credential copied a moment ago stays pasteable
+  until this is done. Ticking it means you will have nothing to paste
+  afterwards, which is the point when resetting because of a secret.
+- **Also remove on-disk history.** Only offered when a directory is actually
+  found outside tmpfs, such as `~/.cache/shadowclip` from a pre-0.3 install.
+
+Reset reports what it did, including when emptying the clipboard fails. There
+is no undo.
 
 ---
 

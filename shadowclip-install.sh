@@ -50,7 +50,12 @@ check_dependencies() {
     local failed=0
     require xclip xclip || failed=1
     require python3 python3 || failed=1
-    if ! python3 -c "import gi; gi.require_version('"'"'Gtk'"'"','"'"'3.0'"'"')" 2>/dev/null; then
+    # Heredoc rather than an inline -c string. The nested quoting the latter
+    # needs is unreadable and one edit away from silently testing nothing.
+    if ! python3 - <<'PYCHECK' 2>/dev/null; then
+import gi
+gi.require_version('Gtk', '3.0')
+PYCHECK
         say "missing dependency: GTK3 for Python -- install it with:"
         say "  sudo apt install python3-gi gir1.2-gtk-3.0"
         failed=1
