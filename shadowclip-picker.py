@@ -66,6 +66,7 @@ DEFAULTS = {
 
 PIN_ICON = "\U0001F4CC"     # 📌
 ENTRY_RE = re.compile(r"^[0-9]+$")
+APP_ID = "shadowclip"       # icon theme name, installed under hicolor
 
 
 # config: parsed, never executed
@@ -334,6 +335,43 @@ def preview_of(path, limit):
 
 # the window
 
+def _apply_icon(window):
+    """Give the window the ShadowClip logo.
+
+    Two sources, in order. An installed copy is in the hicolor icon theme
+    under the name in APP_ID, which is what the window manager, the task
+    switcher and any dock will look up. A copy run straight out of a release
+    folder has no installed icon, so fall back to the icons directory beside
+    this script -- otherwise the picker would show a generic placeholder for
+    anyone trying it before installing.
+
+    Failure here is cosmetic, so nothing raises: a missing icon should never
+    stop the picker from opening.
+    """
+    try:
+        if Gtk.IconTheme.get_default().has_icon(APP_ID):
+            Gtk.Window.set_default_icon_name(APP_ID)
+            window.set_icon_name(APP_ID)
+            return
+    except Exception:
+        pass
+
+    # PNG before SVG deliberately. gdk-pixbuf only reads SVG when the
+    # librsvg loader is installed, which is common but not guaranteed, and a
+    # box without it raises here rather than falling back on its own.
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in ("shadowclip-256.png", "shadowclip.svg", "shadowclip-48.png"):
+        path = os.path.join(here, "icons", name)
+        if not os.path.exists(path):
+            continue
+        try:
+            Gtk.Window.set_default_icon_from_file(path)
+            window.set_icon_from_file(path)
+            return
+        except (GLib.Error, OSError):
+            continue
+
+
 class PickerWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="ShadowClip")
@@ -342,6 +380,7 @@ class PickerWindow(Gtk.Window):
                               config_get_int("WINDOW_HEIGHT"))
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_keep_above(True)
+        _apply_icon(self)
 
         self.connect("destroy", lambda *_: Gtk.main_quit())
         self.connect("key-press-event", self.on_key)
@@ -411,35 +450,83 @@ class PickerWindow(Gtk.Window):
                 border: 1px solid #007A3D; }
         .statusbar { color: #007A3D; padding: 4px 8px; font-size: 90%; }
         list { background-color: #000000; }
-        row { border-bottom: 1px solid #001a00; }
-        row:selected { background-color: #00FF41; }
-        row:selected label { color: #000000; }
+
+        /* Every row carries a left bar that is transparent until the row is
+           selected, so turning it amber costs no horizontal space and the
+           text never shifts sideways as the selection moves. */
+        row { background-color: #000000; background-image: none;
+              border-bottom: 1px solid #001a00;
+              border-left: 3px solid transparent; }
         label { color: #00CC33; }
         .num { color: #007A3D; }
-        .pinbtn { color: #FF3355; background: none; border: none;
-                  padding: 0 8px 0 0; }
+        .pinbtn { color: #FF3355; background: none; background-image: none;
+                  border: none; padding: 0 8px 0 0; }
         .pinned label { color: #FF3355; }
-        .pinned:selected { background-color: #FF3355; }
-        .pinned:selected label { color: #FFFFFF; }
+
+        /* Selection.
+
+           background-image: none is the load-bearing declaration here, not
+           tidiness. The desktop theme paints a selected row with a
+           linear-gradient, and a gradient is a background *image*: it is
+           drawn over background-color, so every colour this stylesheet set
+           for a selected row was being covered by theme grey regardless of
+           what we chose. That is why the selected row rendered grey while
+           this file said #00FF41, and why 0.5.3's backdrop pass did not fix
+           it -- that pass corrected label colours, which were never the
+           problem. Clearing the image is the fix. The colours below are
+           taste.
+
+           Those colours: amber, matching the Reset button, and built the way
+           every other surface in the picker is built -- a dark tinted fill
+           under bright text, rather than a bright fill under dark text. The
+           row keeps its own text colour, green normally and red when pinned,
+           so a pinned row is still legible as pinned while selected. The bar
+           down the left edge is what says "selected", which is why the text
+           colour does not have to. */
+        row:selected { background-color: #3A2A00; background-image: none;
+                       border-left-color: #FFB000; }
+        row:selected label { color: #FFB000; }
+        row:selected .num { color: #C98A00; }
+        row:selected .pinbtn { color: #FF3355; }
+        .pinned:selected { background-color: #2A0A10; background-image: none;
+                           border-left-color: #FFB000; }
+        .pinned:selected label { color: #FF3355; }
+        .pinned:selected .num { color: #C98A00; }
+
+        /* Hover, kept quiet so it never reads as a selection. */
+        row:hover { background-color: #0A0A0A; background-image: none; }
+        row:selected:hover { background-color: #3A2A00; }
+        .pinned:selected:hover { background-color: #2A0A10; }
 
         /* Backdrop: the state GTK applies when the window loses focus.
            Without these rules the desktop theme supplies the selection
-           colour, which is grey, and our black selected-row text becomes
-           black on grey. Pinned rows escaped it only because their red
-           label colour happens to survive on grey.
-
-           Every state above needs its backdrop twin, or the picker looks
-           different depending on which window the user clicked last. */
+           colour, and the picker looks different depending on which window
+           the user clicked last. Every state above needs its twin. */
         window:backdrop { background-color: #000000; }
         list:backdrop { background-color: #000000; }
         label:backdrop { color: #00CC33; }
         .num:backdrop { color: #007A3D; }
-        row:backdrop { border-bottom-color: #001a00; }
-        row:selected:backdrop { background-color: #00FF41; }
-        row:selected:backdrop label { color: #000000; }
+        row:backdrop { background-color: #000000; background-image: none;
+                       border-bottom-color: #001a00;
+                       border-left-color: transparent; }
+        row:selected:backdrop { background-color: #3A2A00;
+                                background-image: none;
+                                border-left-color: #FFB000; }
+        row:selected:backdrop label { color: #FFB000; }
+        row:selected:backdrop .num { color: #C98A00; }
+        row:selected:backdrop .pinbtn { color: #FF3355; }
         .pinned:backdrop label { color: #FF3355; }
-        .pinned:selected:backdrop { background-color: #FF3355; }
-        .pinned:selected:backdrop label { color: #FFFFFF; }
+        .pinned:selected:backdrop { background-color: #2A0A10;
+                                    background-image: none;
+                                    border-left-color: #FFB000; }
+        .pinned:selected:backdrop label { color: #FF3355; }
+        .pinned:selected:backdrop .num { color: #C98A00; }
+        row:hover:backdrop { background-color: #0A0A0A;
+                             background-image: none; }
+        row:selected:hover:backdrop { background-color: #3A2A00; }
+        .pinned:selected:hover:backdrop { background-color: #2A0A10; }
+        .toolbtn:hover:backdrop { background-color: #002a00; }
+        .reset-tool:hover:backdrop { background-color: #2a1f00; }
         .toolbar:backdrop { background-color: #000000; }
         .searchbar:backdrop { background-color: #000000; }
         .statusbar:backdrop { color: #007A3D; }

@@ -27,8 +27,10 @@ set -euo pipefail
 SOURCE_DIR="$(dirname "$(readlink -f "$0")")"
 BINDIR="$SHADOWCLIP_BINDIR"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 SCRIPTS=(shadowclip-daemon.sh shadowclip-picker.sh shadowclip-toggle.sh)
 EXTRA=(shadowclip-picker.py)
+ICON_SIZES=(16 24 32 48 64 128 256)
 
 # helpers
 
@@ -88,6 +90,40 @@ install_files() {
         install -m 755 "$SOURCE_DIR/$extra" "$BINDIR/$extra"
         say "installed $BINDIR/$extra"
     done
+}
+
+install_icons() {
+    say ""
+    say "== icons =="
+    if [ ! -d "$SOURCE_DIR/icons" ]; then
+        say "no icons directory in the release -- skipping"
+        return 0
+    fi
+    # Into the user's hicolor theme, so the window manager, the task
+    # switcher and any dock find the logo by name rather than the picker
+    # having to hand them a file. The picker falls back to the release
+    # folder when this step has not run, so it is safe to skip.
+    local n=0
+    for size in "${ICON_SIZES[@]}"; do
+        src="$SOURCE_DIR/icons/shadowclip-$size.png"
+        [ -f "$src" ] || continue
+        mkdir -p "$ICON_DIR/${size}x${size}/apps"
+        install -m 644 "$src" "$ICON_DIR/${size}x${size}/apps/shadowclip.png"
+        n=$((n + 1))
+    done
+    if [ -f "$SOURCE_DIR/icons/shadowclip.svg" ]; then
+        mkdir -p "$ICON_DIR/scalable/apps"
+        install -m 644 "$SOURCE_DIR/icons/shadowclip.svg" \
+            "$ICON_DIR/scalable/apps/shadowclip.svg"
+        n=$((n + 1))
+    fi
+    say "installed $n icon files under $ICON_DIR"
+    # Refresh the theme cache if the tool is present. Without it a running
+    # session can keep showing the old icon, or none, until the next login.
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t -f "$ICON_DIR" 2>/dev/null || true
+        say "refreshed the icon cache"
+    fi
 }
 
 install_service() {
@@ -171,6 +207,7 @@ say "ShadowClip installer"
 say ""
 check_dependencies
 install_files
+install_icons
 install_service
 install_hotkeys
 report_storage

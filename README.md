@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icons/shadowclip-wordmark.svg" alt="ShadowClip" width="620">
+</p>
+
 # ShadowClip
 
 > Clipboard History That Knows When to Stop Recording
@@ -36,7 +40,7 @@ It is a convenience tool with security controls, not a secrets manager.
 
 - Numbered history, 1 is most recent, newest entry emphasised in bold
 - Pin a clip from a per-row icon, a toolbar button, right-click, or Ctrl+P
-- Pinned clips listed first, shown in red
+- Pinned clips listed first, shown in red, and still red while selected
 - Toolbar with Pin and Settings that stays put while the list scrolls
 - Right-click any row to pin, restore or delete
 - Drag to resize; the window remembers its size
@@ -51,7 +55,9 @@ It is a convenience tool with security controls, not a secrets manager.
 - Configurable maximum entries, changed from the popup
 - Owner-only permissions on the history directory and every entry
 - One-command install that binds both hotkeys for you
-- Black and green theme
+- Black and green theme, with the selected row picked out in amber
+- App icon installed into the hicolor theme, with a drawing of its own for
+  small sizes
 
 ---
 

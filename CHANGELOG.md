@@ -1,5 +1,55 @@
 # Changelog
 
+## Version 0.5.4
+
+A readable selected row, and a logo.
+
+### Changed
+
+- The selected row is amber now, matching the Reset button: a dark amber
+  fill under bright amber text, with an amber bar down the left edge. It was
+  a bright green fill under black text, which put dark text on a light row
+  in a UI that is otherwise light text on dark, and read as a hole punched
+  in the list rather than as a highlight.
+- A selected row keeps its own text colour. Pinned rows stay red while
+  selected instead of turning white, so pinned is still legible as pinned
+  without having to deselect the row to check. The left bar is what marks
+  the selection, which is why the text colour no longer has to.
+- The row number on a selected row is a dimmed amber, holding the same
+  quieter-than-the-text relationship it has when the row is unselected.
+
+### Added
+
+- A logo. A clipboard casting a hard-offset shadow of itself, drawn in the
+  two greens already in the palette rather than a third colour. Installed
+  into the user's hicolor icon theme at seven sizes plus a scalable copy, so
+  the window manager, the task switcher and any dock pick it up by name.
+- A separate drawing for 16px and 24px, solid shapes with the detail knocked
+  out rather than outlines. An outline loses its interior below about 32px,
+  where the stroke and the gap it encloses land on the same pixel and the
+  icon fills into a green blob.
+- A wordmark lockup for the README header.
+
+### Fixed
+
+- Every hover state now has a backdrop twin, closing the last of the gaps
+  that produced the 0.5.3 selection bug. The stylesheet is checked against
+  that rule directly: every selector that sets a colour must have a matching
+  `:backdrop` rule, and the new colours clear WCAG AA against the background
+  they actually sit on.
+
+### Notes
+
+The picker looks for its icon in the hicolor theme first and falls back to
+the `icons/` directory beside the script, so a release folder run without
+installing still has a logo. The fallback tries PNG before SVG: gdk-pixbuf
+only reads SVG when the librsvg loader is present, which is usual but not
+guaranteed, and a machine without it raises rather than degrading quietly.
+
+Worth knowing if you are coming from 0.5.2: the grey selected row with black
+text is the 0.5.2 backdrop bug, which 0.5.3 already fixed. Installing this
+release fixes it whether or not you like amber.
+
 ## Version 0.5.3
 
 Interaction fixes in the picker. Nothing else changed.

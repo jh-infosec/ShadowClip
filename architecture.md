@@ -199,7 +199,41 @@ unreadable, and only in the moment the user had clicked elsewhere. Pinned rows
 escaped it by accident, because red survives on grey.
 
 Every visible state therefore has a backdrop counterpart. Adding a rule means
-adding two.
+adding two. As of 0.5.4 that is checked rather than remembered: every selector
+in the stylesheet that sets a colour must have a matching `:backdrop` rule
+setting the same properties, and the hover states that had been missed are in.
+
+### Selection is a bar, not a colour swap
+
+The selected row is amber, matching Reset, and built the way the rest of the
+picker is built: a dark tinted fill under bright text, rather than a bright
+fill under dark text. Until 0.5.4 it was the other way round, a bright green
+fill with black text, which inverted the contrast direction of every other
+surface and read as a hole in the list rather than a highlight.
+
+The row keeps its own text colour when selected, green normally and red when
+pinned. What marks the selection is the amber bar down the left edge, and
+because the bar carries that job the text colour does not have to — so a
+pinned row is still visibly pinned while it is selected, which it was not
+when selection overrode red with white.
+
+Every row carries that bar at all times, transparent until selected. A border
+that appeared on selection would push the row's text sideways by its own
+width each time the selection moved.
+
+### The icon has two drawings
+
+The mark is a clipboard casting a hard-offset shadow of itself, in the two
+greens already in the palette. Below about 32px an outlined drawing fills in:
+the stroke and the gap it encloses land on the same pixel and the shape goes
+solid. So 16px and 24px use a second file drawn as solid shapes with the
+detail knocked out in black, where what scales is the silhouette. The icon
+theme picks between them by size.
+
+The picker looks the icon up in the hicolor theme by name, then falls back to
+the `icons/` directory beside the script, so a release folder that has not
+been installed still has a logo. The fallback tries PNG before SVG, because
+gdk-pixbuf reads SVG only when the librsvg loader is present.
 
 ### Clicking away closes the picker
 
@@ -428,5 +462,11 @@ The following files are part of the project structure and must be preserved:
 shadowclip-daemon.sh    shadowclip-picker.sh    shadowclip-picker.py
 shadowclip-toggle.sh    shadowclip-install.sh   shadowclip.service
 architecture.md         README.md               CHANGELOG.md
-ROADMAP.md
+ROADMAP.md              icons/
 ```
+
+`icons/` holds `shadowclip.svg` (the mark), `shadowclip-small.svg` (the 16px
+and 24px drawing), `shadowclip-wordmark.svg` (the README lockup), and the
+PNGs rendered from those two mark files at 16, 24, 32, 48, 64, 128 and 256.
+The PNGs are generated, not drawn: regenerate them from the SVGs rather than
+editing them.
