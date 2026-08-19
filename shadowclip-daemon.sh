@@ -68,6 +68,11 @@ SECRET_PATTERNS=(
 # Permissions are set on every start, not just on creation, so an existing
 # install from an earlier version gets hardened on first run of this one.
 
+# Owner-only by default. The explicit chmods below already do this, but a
+# umask closes the brief window between a file being created and being
+# chmod'd, and covers any path added later that forgets the chmod.
+umask 077
+
 mkdir -p "$HISTDIR" "$CONFIG_DIR"
 chmod 700 "$HISTDIR"
 touch "$CONFIG_FILE"

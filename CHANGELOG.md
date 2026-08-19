@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 0.5.1
+
+### Added
+
+- The picker is single-instance. Pressing the hotkey while it is open closes
+  it instead of stacking another window. Implemented with a PID lock file in
+  the history directory; a stale lock from a crashed instance is ignored, so
+  a crash never wedges the picker shut.
+
+### Changed
+
+- `umask 077` in the daemon, so history files are owner-only from creation,
+  ahead of the explicit chmod that already set the same bits.
+
 ## Version 0.5.0
 
 The picker is now a GTK3 window instead of a rofi menu. Everything behind it

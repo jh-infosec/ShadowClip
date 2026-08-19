@@ -207,7 +207,7 @@ class PickerWindow(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_keep_above(True)
 
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", lambda *_: Gtk.main_quit())
         self.connect("key-press-event", self.on_key)
         # Persist the size the user drags to, so the window remembers it.
         self.connect("configure-event", self.on_configure)
@@ -525,15 +525,91 @@ class SettingsDialog:
         self.dialog.destroy()
 
 
+# single instance / toggle
+
+LOCK_FILE = os.path.join(HISTDIR, ".picker.pid")
+
+
+def _process_alive(pid):
+    # Signal 0 tests for the process without touching it. ESRCH means gone,
+    # EPERM means alive but not ours, which for our own picker will not happen.
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def running_instance_pid():
+    # Returns the PID of a live picker holding the lock, or None. A lock left
+    # behind by a crashed process is treated as stale and ignored, so a crash
+    # never wedges the picker shut.
+    try:
+        with open(LOCK_FILE) as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+    if pid != os.getpid() and _process_alive(pid):
+        return pid
+    return None
+
+
+def toggle_closed_existing():
+    # If another picker is up, close it and report that we did. This is what
+    # turns a second hotkey press into "close" rather than "open another".
+    # SIGTERM lets the running instance clean up its own lock in the finally
+    # below; we do not delete its lock for it.
+    pid = running_instance_pid()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    return True
+
+
+def write_lock():
+    os.makedirs(HISTDIR, exist_ok=True)
+    fd = os.open(LOCK_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(str(os.getpid()))
+
+
+def clear_own_lock():
+    try:
+        with open(LOCK_FILE) as fh:
+            if int(fh.read().strip()) == os.getpid():
+                os.remove(LOCK_FILE)
+    except (OSError, ValueError):
+        pass
+
+
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     if not shutil.which("xclip"):
         sys.stderr.write("shadowclip-picker: xclip not found (sudo apt install xclip)\n")
         return 1
+
+    # Toggle: a second launch while one is open closes the open one and stops.
+    if toggle_closed_existing():
+        return 0
+
     os.makedirs(HISTDIR, exist_ok=True)
-    win = PickerWindow()
-    win.show_all()
-    Gtk.main()
+    write_lock()
+
+    # SIGTERM from the toggling instance must exit the loop cleanly so the
+    # finally can remove the lock. Quitting GTK is the graceful way out.
+    signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+
+    try:
+        win = PickerWindow()
+        win.show_all()
+        Gtk.main()
+    finally:
+        clear_own_lock()
     return 0
 
 
