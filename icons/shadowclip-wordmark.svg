@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 200" width="900" height="200" role="img" aria-labelledby="tw">
+  <title id="tw">ShadowClip</title>
+  <!-- Horizontal lockup for the README header. The mark is the same
+       geometry as shadowclip.svg, scaled by half, so the two never drift
+       apart. Type is a generic monospace stack rather than a bundled font:
+       the file has to render on someone else's machine without shipping a
+       webfont, and monospace is the family the picker already reads as. -->
+  <rect x="0" y="0" width="900" height="200" rx="14" fill="#0A0A0A"/>
+
+  <g transform="translate(46,34) scale(0.5)">
+    <rect x="60" y="58" width="150" height="180" rx="16" fill="#007A3D"/>
+    <rect x="42" y="40" width="150" height="180" rx="16"
+          fill="#0A0A0A" stroke="#00FF41" stroke-width="12"/>
+    <rect x="88" y="22" width="58" height="36" rx="11"
+          fill="#0A0A0A" stroke="#00FF41" stroke-width="12"/>
+    <g stroke="#00FF41" stroke-width="14" stroke-linecap="round">
+      <line x1="76" y1="110" x2="158" y2="110"/>
+      <line x1="76" y1="146" x2="158" y2="146"/>
+      <line x1="76" y1="182" x2="124" y2="182"/>
+    </g>
+  </g>
+
+  <text x="206" y="98" fill="#00FF41"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="58" font-weight="700" letter-spacing="1">ShadowClip</text>
+  <text x="209" y="138" fill="#007A3D"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="19" letter-spacing="0.4">clipboard history that knows when to stop recording</text>
+</svg>

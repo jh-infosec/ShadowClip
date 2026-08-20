@@ -65,6 +65,7 @@
 - [x] Add a clip by hand, for clipboards that cannot cross a VM boundary
 - [x] Toolbar doubles as a window drag handle
 - [x] Right-click menu actually opens (broken since it was introduced)
+- [x] Window survives being dragged instead of closing mid-drag
 - [ ] Automated test for the bulk actions in the picker
 - [ ] Wayland: detect the session and fail loudly instead of capturing nothing
 

@@ -214,12 +214,16 @@ surface and read as a hole in the list rather than a highlight.
 What marks the selection is the amber bar down the left edge. Because the bar
 carries that job, the row's text colour is free to carry a different one.
 
-Ordinary rows are green and go amber when selected. Pinned rows are white and
-go red when selected, which is the inverse of what 0.5.4 did and better use
-of the palette: the red pin icon already marks a row as pinned while scanning
-the list, so red on the text is redundant there and more useful on the
-selected row, where it says "the row you are about to act on is one you
-deliberately kept".
+Ordinary rows are green and go red when selected. Pinned rows are red and go
+white when selected. White is reserved for the single row being acted on,
+which is the one place maximum contrast is worth spending.
+
+This does mean red carries two meanings: a red row in the list is pinned, a
+red row under the amber bar is selected. They are told apart by the bar and
+by the background tint, and in practice only one row is ever selected, so the
+ambiguity is bounded to a single line. It is the one place in the palette
+where a colour is not unique to one meaning, and worth knowing before
+changing anything here.
 
 Every row carries that bar at all times, transparent until selected. A border
 that appeared on selection would push the row's text sideways by its own
@@ -338,6 +342,30 @@ The picker looks the icon up in the hicolor theme by name, then falls back to
 the `icons/` directory beside the script, so a release folder that has not
 been installed still has a logo. The fallback tries PNG before SVG, because
 gdk-pixbuf reads SVG only when the librsvg loader is present.
+
+### Clicking away closes the picker, dragging it does not
+
+The picker closes when it loses focus, which is what makes clicking away
+dismiss it. That rule collided with moving the window: a window manager
+takes a pointer grab to move a window, and on some window managers that
+takes focus too, so the picker destroyed itself the moment a drag began.
+Reported, reasonably, as a window that would not move.
+
+The close check distinguishes the two cases from what is knowable at that
+instant -- which buttons are held, and where the pointer is relative to this
+window's frame. Both are needed. A held button alone is also true of a click
+that lands on another window; a pointer inside the frame alone is also true
+of alt-tabbing away with the mouse left where it was. Together they only
+describe a drag of our own frame.
+
+Frame extents rather than the window's own geometry, because the title bar
+being dragged belongs to the frame and lies outside the client area, so a
+client-area test would classify a title-bar drag as a click-away.
+
+The decision is a plain function taking a modifier mask, a pointer position
+and a rectangle, with the widget doing nothing but supply them. That is
+what makes it testable against a table of positions rather than a live
+pointer, including each edge of the frame.
 
 ### Clicking away closes the picker
 

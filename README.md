@@ -40,7 +40,7 @@ It is a convenience tool with security controls, not a secrets manager.
 
 - Numbered history, 1 is most recent, newest entry emphasised in bold
 - Pin a clip from a per-row icon, a toolbar button, right-click, or Ctrl+P
-- Pinned clips listed first, shown in white, and red on the selected row
+- Pinned clips listed first, shown in red, and white on the selected row
 - Toolbar with Pin and Settings that stays put while the list scrolls
 - Right-click any row to pin or delete it
 - Add a clip by hand for when the clipboard cannot reach this machine
@@ -57,7 +57,8 @@ It is a convenience tool with security controls, not a secrets manager.
 - Configurable maximum entries, changed from the popup
 - Owner-only permissions on the history directory and every entry
 - One-command install that binds both hotkeys for you
-- Black and green theme, with the selected row picked out in amber
+- Black and green theme; the selected row is picked out by an amber bar,
+  and turns red for an ordinary clip or white for a pinned one
 - App icon installed into the hicolor theme, with a drawing of its own for
   small sizes
 
@@ -335,7 +336,7 @@ tests/run-tests.sh
 ```
 
 Covers the stylesheet rules, window position memory, the row right-click
-menu, clips added by hand and the daemon's dedupe. The stylesheet test needs no display. The others build real GTK windows
+menu, clips added by hand, the daemon's dedupe and the drag guard. The stylesheet test needs no display. The others build real GTK windows
 and fall back to `xvfb-run` when there is no display, so the suite works over
 SSH; install it with `sudo apt install xvfb` if it is missing.
 

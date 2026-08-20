@@ -387,6 +387,34 @@ def preview_of(path, limit):
 
 # the window
 
+BUTTON_MASKS = (Gdk.ModifierType.BUTTON1_MASK
+                | Gdk.ModifierType.BUTTON2_MASK
+                | Gdk.ModifierType.BUTTON3_MASK)
+
+
+def drag_in_progress(mask, pointer_x, pointer_y,
+                     frame_x, frame_y, frame_width, frame_height):
+    """Decide whether a held button plus a pointer position is a window drag.
+
+    Split out from the widget so it can be tested against a table of
+    positions instead of a live pointer. Both conditions are needed:
+
+    - A button is down. Nothing is being dragged if nothing is pressed.
+    - The pointer is inside the window's frame. This is what separates a
+      drag of our own title bar from a click on some other window, because
+      by the time focus has moved to that other window the pointer is over
+      it and not over us.
+
+    The rectangle is frame extents, not the window's own geometry: the title
+    bar being dragged belongs to the frame and lies outside the client area,
+    so a client-area test would call a title-bar drag a click-away.
+    """
+    if not mask & BUTTON_MASKS:
+        return False
+    return (frame_x <= pointer_x < frame_x + frame_width
+            and frame_y <= pointer_y < frame_y + frame_height)
+
+
 def _apply_icon(window):
     """Give the window the ShadowClip logo.
 
@@ -511,6 +539,9 @@ class PickerWindow(Gtk.Window):
         menu menuitem { color: #00CC33; background-color: #000000;
                         background-image: none; padding: 5px 14px; }
         menu menuitem:hover { background-color: #3A2A00; color: #FFB000; }
+        /* The menu keeps amber for hover. It is a different surface from the
+           list, so it does not have to follow the row colours, and amber
+           there stays tied to the toolbar it was matched to. */
         menu:backdrop { background-color: #000000; background-image: none; }
         menu menuitem:backdrop { color: #00CC33; background-color: #000000;
                                  background-image: none; }
@@ -529,13 +560,11 @@ class PickerWindow(Gtk.Window):
         .num { color: #007A3D; }
         .pinbtn { color: #FF3355; background: none; background-image: none;
                   border: none; padding: 0 8px 0 0; }
-        /* Pinned rows are white in the list and red on the selected row.
-           The red pin icon is what marks a row as pinned while scanning;
-           white is simply the most readable thing the text can be. Red then
-           does double duty as the selected-pinned colour, which is where it
-           is most useful -- it tells you the row you are about to act on is
-           one you deliberately kept. */
-        .pinned label { color: #FFFFFF; }
+        /* Pinned rows are red in the list, white when selected. Red is the
+           at-a-glance marker for "this one is kept"; white is the most
+           readable thing a row can be and is reserved for the one row the
+           user is acting on. */
+        .pinned label { color: #FF3355; }
 
         /* Selection.
 
@@ -557,20 +586,20 @@ class PickerWindow(Gtk.Window):
            so a pinned row is still legible as pinned while selected. The bar
            down the left edge is what says "selected", which is why the text
            colour does not have to. */
-        row:selected { background-color: #3A2A00; background-image: none;
+        row:selected { background-color: #2A0A10; background-image: none;
                        border-left-color: #FFB000; }
-        row:selected label { color: #FFB000; }
+        row:selected label { color: #FF3355; }
         row:selected .num { color: #C98A00; }
         row:selected .pinbtn { color: #FF3355; }
-        .pinned:selected { background-color: #2A0A10; background-image: none;
+        .pinned:selected { background-color: #3A1018; background-image: none;
                            border-left-color: #FFB000; }
-        .pinned:selected label { color: #FF3355; }
-        .pinned:selected .num { color: #C98A00; }
+        .pinned:selected label { color: #FFFFFF; }
+        .pinned:selected .num { color: #E0A030; }
 
         /* Hover, kept quiet so it never reads as a selection. */
         row:hover { background-color: #0A0A0A; background-image: none; }
-        row:selected:hover { background-color: #3A2A00; }
-        .pinned:selected:hover { background-color: #2A0A10; }
+        row:selected:hover { background-color: #2A0A10; }
+        .pinned:selected:hover { background-color: #3A1018; }
 
         /* Backdrop: the state GTK applies when the window loses focus.
            Without these rules the desktop theme supplies the selection
@@ -583,22 +612,22 @@ class PickerWindow(Gtk.Window):
         row:backdrop { background-color: #000000; background-image: none;
                        border-bottom-color: #001a00;
                        border-left-color: transparent; }
-        row:selected:backdrop { background-color: #3A2A00;
+        row:selected:backdrop { background-color: #2A0A10;
                                 background-image: none;
                                 border-left-color: #FFB000; }
-        row:selected:backdrop label { color: #FFB000; }
+        row:selected:backdrop label { color: #FF3355; }
         row:selected:backdrop .num { color: #C98A00; }
         row:selected:backdrop .pinbtn { color: #FF3355; }
-        .pinned:backdrop label { color: #FFFFFF; }
-        .pinned:selected:backdrop { background-color: #2A0A10;
+        .pinned:backdrop label { color: #FF3355; }
+        .pinned:selected:backdrop { background-color: #3A1018;
                                     background-image: none;
                                     border-left-color: #FFB000; }
-        .pinned:selected:backdrop label { color: #FF3355; }
-        .pinned:selected:backdrop .num { color: #C98A00; }
+        .pinned:selected:backdrop label { color: #FFFFFF; }
+        .pinned:selected:backdrop .num { color: #E0A030; }
         row:hover:backdrop { background-color: #0A0A0A;
                              background-image: none; }
-        row:selected:hover:backdrop { background-color: #3A2A00; }
-        .pinned:selected:hover:backdrop { background-color: #2A0A10; }
+        row:selected:hover:backdrop { background-color: #2A0A10; }
+        .pinned:selected:hover:backdrop { background-color: #3A1018; }
         .toolbtn:hover:backdrop { background-color: #002a00;
                                   background-image: none; }
         .reset-tool:hover:backdrop { background-color: #2a1f00;
@@ -924,9 +953,52 @@ class PickerWindow(Gtk.Window):
         return False
 
     def _close_if_still_unfocused(self):
-        if self._modal_depth == 0 and not self.is_active():
-            self.destroy()
+        if self._modal_depth > 0 or self.is_active():
+            return False
+        if self._being_dragged():
+            # Wait for the drag to finish rather than closing under it, and
+            # re-test when it does. The button is down, so this re-arms every
+            # 200ms for as long as the drag lasts and no longer.
+            GLib.timeout_add(200, self._close_if_still_unfocused)
+            return False
+        self.destroy()
         return False
+
+    def _being_dragged(self):
+        """True while the user is dragging this window by its own frame.
+
+        Moving a window makes the window manager take a pointer grab, and on
+        some window managers that takes focus away from the window being
+        moved. Close-on-focus-out then fires mid-drag and the picker
+        disappears the moment you try to move it -- which is exactly what
+        "the window will not move" turned out to be.
+
+        Distinguishing a drag from a genuine click-away needs two facts
+        together. A button is held down, and the pointer is inside this
+        window's frame. Clicking another window fails the second test,
+        because the pointer is over that other window by then. Frame extents
+        rather than the window's own geometry, because the title bar being
+        dragged belongs to the frame and sits outside the client area.
+
+        Anything unavailable here is treated as "not dragging", so a failure
+        to answer leaves close-on-focus-out working as it did before.
+        """
+        gdk_window = self.get_window()
+        if gdk_window is None:
+            return False
+        display = Gdk.Display.get_default()
+        if display is None:
+            return False
+        try:
+            pointer = display.get_default_seat().get_pointer()
+            root = Gdk.get_default_root_window()
+            _, pointer_x, pointer_y, mask = root.get_device_position(pointer)
+        except (AttributeError, TypeError):
+            return False
+
+        frame = gdk_window.get_frame_extents()
+        return drag_in_progress(mask, pointer_x, pointer_y,
+                                frame.x, frame.y, frame.width, frame.height)
 
     def on_key(self, widget, event):
         if event.keyval == Gdk.KEY_Escape:

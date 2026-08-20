@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="ts">
+  <title id="ts">ShadowClip</title>
+  <!-- Small-size variant, for 16px and 24px. Same mark, drawn as solid
+       shapes with the detail knocked out in black rather than as outlines.
+       An outline loses its interior when it is scaled below about 32px:
+       the stroke and the gap it encloses land on the same pixel and the
+       icon fills in. Solid shapes with cut-outs survive that, because the
+       thing being scaled is the silhouette. The icon theme picks this file
+       for small sizes and shadowclip.svg for everything above. -->
+
+  <!-- Shadow, offset down and right, same darker green as the full mark. -->
+  <rect x="72" y="72" width="152" height="172" rx="18" fill="#007A3D"/>
+
+  <!-- Board, solid. -->
+  <rect x="40" y="40" width="152" height="172" rx="18" fill="#00FF41"/>
+
+  <!-- Clip, cut out of the board's top edge so the two do not merge into
+       one blob when the icon is small. -->
+  <rect x="88" y="20" width="56" height="34" rx="11" fill="#000000"/>
+  <rect x="99" y="27" width="34" height="20" rx="7" fill="#00FF41"/>
+
+  <!-- Two ruled lines, not three. At 16px a third line closes the gaps. -->
+  <rect x="70" y="104" width="92" height="20" rx="10" fill="#000000"/>
+  <rect x="70" y="148" width="62" height="20" rx="10" fill="#000000"/>
+</svg>

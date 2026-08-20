@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">ShadowClip</title>
+  <!-- The mark: a clipboard casting a hard-offset shadow of itself. The
+       shadow is the darker green of the existing palette, so the icon is
+       built from the same two greens as the picker rather than a new
+       colour. Nothing here is stroked thinner than 12 units in a 256 grid,
+       which is what keeps it legible when the icon theme scales it down. -->
+
+  <!-- Shadow: the same board silhouette, solid, offset down and right. -->
+  <rect x="60" y="58" width="150" height="180" rx="16" fill="#007A3D"/>
+
+  <!-- Board. Black fill, not transparent: it occludes the shadow so the
+       offset reads as a shadow rather than as two overlapping boards. -->
+  <rect x="42" y="40" width="150" height="180" rx="16"
+        fill="#000000" stroke="#00FF41" stroke-width="12"/>
+
+  <!-- Clip, drawn last over the board's top edge so it notches into it. -->
+  <rect x="88" y="22" width="58" height="36" rx="11"
+        fill="#000000" stroke="#00FF41" stroke-width="12"/>
+
+  <!-- Three ruled lines. The short last line reads as text rather than as
+       a grille, and gives the mark an asymmetry that survives scaling. -->
+  <g stroke="#00FF41" stroke-width="14" stroke-linecap="round">
+    <line x1="76" y1="110" x2="158" y2="110"/>
+    <line x1="76" y1="146" x2="158" y2="146"/>
+    <line x1="76" y1="182" x2="124" y2="182"/>
+  </g>
+</svg>

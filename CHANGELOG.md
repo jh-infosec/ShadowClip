@@ -1,5 +1,52 @@
 # Changelog
 
+## Version 0.5.7
+
+The window can be moved, and the selection colours are reworked.
+
+### Fixed
+
+- **The picker no longer closes when you try to drag it.** It was not that
+  the window refused to move: it was being destroyed mid-drag. Moving a
+  window makes the window manager take a pointer grab, and on some window
+  managers that takes focus with it, so close-on-focus-out fired the instant
+  a drag began. From the outside that is indistinguishable from a window
+  that will not budge.
+
+  The close check now tells a drag from a click-away by two facts together:
+  a button is held, and the pointer is inside this window's frame. Clicking
+  another window fails the second test, because by then the pointer is over
+  that window. Frame extents rather than client geometry, since the title
+  bar being dragged sits outside the client area.
+
+### Changed
+
+- Selection colours. Pinned clips are red in the list and white when
+  selected; ordinary clips stay green and turn red when selected. The amber
+  bar down the left edge still marks the selection, so the text colour is
+  free to say what kind of row it is.
+- The two selected states get their own backgrounds -- a dark maroon for an
+  ordinary row, a lighter one for a pinned row -- so selection is still
+  legible in the moment red means "selected here" and "pinned there".
+
+### Notes
+
+Every colour pair is checked against WCAG AA by the stylesheet test rather
+than eyeballed. The tightest of the new ones is red on dark maroon at
+5.10:1, comfortably above the 4.5:1 line.
+
+Worth knowing: red now means two things depending on where it is. A red row
+in the list is pinned; a red row under the amber bar is merely selected. The
+bar and the background are what separate them. This is what was asked for and
+it reads clearly on screen, but it is the one place in the palette where a
+colour is not unique to one meaning.
+
+The drag fix was verified by running the old and new pickers through an
+identical scripted drag under a real window manager. The old one closed
+mid-drag; the new one survived and moved. The decision itself is a pure
+function, tested against fourteen pointer positions including each frame
+edge.
+
 ## Version 0.5.6
 
 Right click works, clips can be typed in by hand, and the window can be
