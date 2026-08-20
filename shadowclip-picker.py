@@ -87,6 +87,29 @@ def config_get_int(key):
     return default
 
 
+def config_get_signed(key):
+    """Read one possibly-negative integer setting, or None if unset.
+
+    Window coordinates need their own reader. config_get_int matches digits
+    only, which is right for counts but wrong here: a monitor placed left of
+    or above the primary one has negative coordinates, and a saved position
+    on such a screen would silently fall back to the default. None rather
+    than a sentinel number, because every integer is a legal position.
+    """
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return None
+    value = None
+    for line in lines:
+        if line.startswith(key + "="):
+            value = line.split("=", 1)[1].strip()
+    if value is not None and re.fullmatch(r"-?[0-9]+", value):
+        return int(value)
+    return None
+
+
 def config_set_int(key, value):
     # Atomic upsert, same contract as the shell config_set: replace the key if
     # present, append if absent, leave every other key untouched, and never
@@ -305,18 +328,47 @@ def clear_clipboard():
     return clipboard_text() == ""
 
 
-def restore_to_clipboard(path):
+def write_clipboard(text):
     # setsid detaches xclip into its own session so it outlives this process,
     # which exits immediately after. No -l limit: the daemon polls the
     # clipboard twice a second and would consume a single-serving selection
     # before the user could paste. That was the 0.4.x paste bug.
-    data = read_entry(path, 10 * 1024 * 1024)
-    proc = subprocess.Popen(
-        ["setsid", "xclip", "-selection", "clipboard", "-i"],
-        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    proc.stdin.write(data.encode("utf-8", "replace"))
-    proc.stdin.close()
+    try:
+        proc = subprocess.Popen(
+            ["setsid", "xclip", "-selection", "clipboard", "-i"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        proc.stdin.write(text.encode("utf-8", "replace"))
+        proc.stdin.close()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+def restore_to_clipboard(path):
+    write_clipboard(read_entry(path, 10 * 1024 * 1024))
+
+
+def add_entry(text):
+    """Store text typed in by hand as a new clip. Returns its path.
+
+    Named the same way the daemon names entries -- nanoseconds since the
+    epoch -- because the sort order, the pruning and the expiry all read the
+    filename as a timestamp. Anything else would sort into the wrong place
+    and never expire.
+
+    The secret filter is not applied. It exists to stop a credential being
+    swept up by accident while the user was copying something else; a clip
+    typed into a box labelled "add a clip" is not an accident, and silently
+    dropping what someone deliberately entered would be the worse failure.
+    """
+    os.makedirs(HISTDIR, exist_ok=True)
+    path = os.path.join(HISTDIR, str(time.time_ns()))
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return path
 
 
 # preview text
@@ -378,7 +430,7 @@ class PickerWindow(Gtk.Window):
         self.preview_chars = config_get_int("PREVIEW_CHARS")
         self.set_default_size(config_get_int("WINDOW_WIDTH"),
                               config_get_int("WINDOW_HEIGHT"))
-        self.set_position(Gtk.WindowPosition.CENTER)
+        self._restore_position()
         self.set_keep_above(True)
         _apply_icon(self)
 
@@ -431,6 +483,8 @@ class PickerWindow(Gtk.Window):
         # unchanged and remains the fastest way through.
         self.listbox.set_activate_on_single_click(False)
         self.listbox.connect("row-activated", self.on_row_activated)
+        self.listbox.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.listbox.connect("button-press-event", self.on_list_button_press)
         scroller.add(self.listbox)
         outer.pack_start(scroller, True, True, 0)
 
@@ -446,8 +500,22 @@ class PickerWindow(Gtk.Window):
         .toolbar { background-color: #000000; border-bottom: 2px solid #00FF41;
                    padding: 6px; }
         .searchbar { background-color: #000000; padding: 4px 8px; }
-        entry { background-color: #001a00; color: #00FF41;
-                border: 1px solid #007A3D; }
+        entry { background-color: #001a00; background-image: none;
+                color: #00FF41; border: 1px solid #007A3D; }
+
+        /* The row menu. Without these rules it is whatever the desktop theme
+           draws -- a white popup hanging off a black window. It is part of
+           the picker, so it is themed like the picker. */
+        menu { background-color: #000000; background-image: none;
+               border: 1px solid #007A3D; padding: 2px; }
+        menu menuitem { color: #00CC33; background-color: #000000;
+                        background-image: none; padding: 5px 14px; }
+        menu menuitem:hover { background-color: #3A2A00; color: #FFB000; }
+        menu:backdrop { background-color: #000000; background-image: none; }
+        menu menuitem:backdrop { color: #00CC33; background-color: #000000;
+                                 background-image: none; }
+        menu menuitem:hover:backdrop { background-color: #3A2A00;
+                                       color: #FFB000; }
         .statusbar { color: #007A3D; padding: 4px 8px; font-size: 90%; }
         list { background-color: #000000; }
 
@@ -461,7 +529,13 @@ class PickerWindow(Gtk.Window):
         .num { color: #007A3D; }
         .pinbtn { color: #FF3355; background: none; background-image: none;
                   border: none; padding: 0 8px 0 0; }
-        .pinned label { color: #FF3355; }
+        /* Pinned rows are white in the list and red on the selected row.
+           The red pin icon is what marks a row as pinned while scanning;
+           white is simply the most readable thing the text can be. Red then
+           does double duty as the selected-pinned colour, which is where it
+           is most useful -- it tells you the row you are about to act on is
+           one you deliberately kept. */
+        .pinned label { color: #FFFFFF; }
 
         /* Selection.
 
@@ -515,7 +589,7 @@ class PickerWindow(Gtk.Window):
         row:selected:backdrop label { color: #FFB000; }
         row:selected:backdrop .num { color: #C98A00; }
         row:selected:backdrop .pinbtn { color: #FF3355; }
-        .pinned:backdrop label { color: #FF3355; }
+        .pinned:backdrop label { color: #FFFFFF; }
         .pinned:selected:backdrop { background-color: #2A0A10;
                                     background-image: none;
                                     border-left-color: #FFB000; }
@@ -525,31 +599,49 @@ class PickerWindow(Gtk.Window):
                              background-image: none; }
         row:selected:hover:backdrop { background-color: #3A2A00; }
         .pinned:selected:hover:backdrop { background-color: #2A0A10; }
-        .toolbtn:hover:backdrop { background-color: #002a00; }
-        .reset-tool:hover:backdrop { background-color: #2a1f00; }
+        .toolbtn:hover:backdrop { background-color: #002a00;
+                                  background-image: none; }
+        .reset-tool:hover:backdrop { background-color: #2a1f00;
+                                     background-image: none; }
         .toolbar:backdrop { background-color: #000000; }
         .searchbar:backdrop { background-color: #000000; }
         .statusbar:backdrop { color: #007A3D; }
-        entry:backdrop { background-color: #001a00; color: #00FF41; }
+        entry:backdrop { background-color: #001a00; background-image: none;
+                         color: #00FF41; }
         .pinbtn:backdrop { color: #FF3355; }
         .toolbtn:backdrop { color: #00FF41; background-color: #001a00;
-                            border-color: #007A3D; }
+                            background-image: none; border-color: #007A3D; }
         .pin-tool:backdrop { color: #FF3355; border-color: #FF3355; }
         .reset-tool:backdrop { color: #FFB000; border-color: #FFB000; }
         .danger label:backdrop { color: #FFB000; }
+        /* background-image: none is load-bearing on buttons, not tidiness.
+           Desktop themes paint a button with a linear-gradient, and a
+           gradient is a background *image*: it is drawn over background-color
+           regardless of which stylesheet wins. Without this the toolbar
+           buttons render as the theme's own light chrome hanging in a black
+           window, whatever colour is set here. */
         .toolbtn { color: #00FF41; background-color: #001a00;
+                   background-image: none;
                    border: 1px solid #007A3D; padding: 4px 14px; margin: 0 4px; }
-        .toolbtn:hover { background-color: #002a00; }
+        .toolbtn:hover { background-color: #002a00; background-image: none; }
         .pin-tool { color: #FF3355; border-color: #FF3355; }
         .reset-tool { color: #FFB000; border-color: #FFB000; }
-        .reset-tool:hover { background-color: #2a1f00; }
+        .reset-tool:hover { background-color: #2a1f00;
+                            background-image: none; }
         .danger label { color: #FFB000; }
         """
         provider = Gtk.CssProvider()
         provider.load_from_data(css)
+        # USER, not APPLICATION. APPLICATION already outranks a theme on
+        # paper, but screenshots from a real Kali desktop still showed the
+        # theme's grey behind a selected row while this file asked for a dark
+        # tint. Rather than keep guessing which theme rule was winning, take
+        # the priority that nothing else in the stack outranks: this picker is
+        # a fully themed surface, and a half-applied stylesheet here is the
+        # unreadable-row bug coming back by another route.
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            Gtk.STYLE_PROVIDER_PRIORITY_USER,
         )
 
     def _build_toolbar(self):
@@ -562,6 +654,14 @@ class PickerWindow(Gtk.Window):
 
         spacer = Gtk.Box()
         bar.pack_start(spacer, True, True, 0)
+
+        add_btn = Gtk.Button(label="＋ Add")
+        add_btn.get_style_context().add_class("toolbtn")
+        add_btn.set_tooltip_text(
+            "Type or paste a clip in by hand, for when the clipboard cannot "
+            "reach this machine")
+        add_btn.connect("clicked", self.on_add_clip)
+        bar.pack_start(add_btn, False, False, 0)
 
         pin_btn = Gtk.Button(label=PIN_ICON + " Pin selected")
         pin_btn.get_style_context().add_class("toolbtn")
@@ -580,7 +680,38 @@ class PickerWindow(Gtk.Window):
         settings_btn.connect("clicked", self.on_settings)
         bar.pack_start(settings_btn, False, False, 0)
 
-        return bar
+        # The toolbar doubles as a drag handle for the whole window.
+        #
+        # A Gtk.Box draws no window of its own and so receives no button
+        # events, which is why this goes in an event box: without one, a
+        # press on the bar lands on whatever is behind it and nothing here
+        # ever fires. Presses that land on a button are consumed by that
+        # button first, so the handle is the empty space around them.
+        handle = Gtk.EventBox()
+        handle.add(bar)
+        handle.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        handle.connect("button-press-event", self.on_toolbar_press)
+        return handle
+
+    def on_toolbar_press(self, widget, event):
+        """Drag the window by its toolbar.
+
+        The title bar is the window manager's business and normally moves a
+        window on its own. When it does not -- and on a keep-above popup
+        under some window managers it does not -- there is otherwise no way
+        to move this window at all, because every other surface in it is a
+        list that wants the same drag for selection.
+
+        begin_move_drag hands the move to the window manager explicitly,
+        which is the same mechanism a client-side-decorated header bar uses.
+        Root coordinates, because the window is about to move out from under
+        the widget-relative ones.
+        """
+        if event.button != Gdk.BUTTON_PRIMARY:
+            return False
+        self.begin_move_drag(event.button, int(event.x_root),
+                             int(event.y_root), event.time)
+        return True
 
     # row construction
 
@@ -619,13 +750,6 @@ class PickerWindow(Gtk.Window):
         box.pack_start(text, True, True, 0)
 
         row.add(box)
-
-        # Right-click menu on the row.
-        gesture = Gtk.GestureMultiPress.new(row)
-        gesture.set_button(3)
-        gesture.connect("pressed", self.on_right_click, row)
-        row._gesture = gesture  # keep a reference so it is not collected
-
         return row
 
     def refresh(self, reselect_path=None):
@@ -690,8 +814,27 @@ class PickerWindow(Gtk.Window):
         new_path = unpin(path) if is_pinned(path) else pin(path)
         self.refresh(reselect_path=new_path)
 
-    def on_right_click(self, gesture, n_press, x, y, row):
-        self.listbox.select_row(row)
+    def on_list_button_press(self, listbox, event):
+        """Open the row menu on right click.
+
+        This is one handler on the list rather than a gesture per row.
+        The per-row version it replaces did not work: a Gtk.ListBoxRow draws
+        no window of its own and was never given a button-press mask, so the
+        gesture had no events to see.
+
+        Returning True on button 3 stops the list's own press handling, which
+        would otherwise move the selection a second time.
+        """
+        if event.button != 3:
+            return False
+        row = listbox.get_row_at_y(int(event.y))
+        if row is None or not hasattr(row, "path"):
+            return False
+        listbox.select_row(row)
+        self.open_row_menu(row, event)
+        return True
+
+    def open_row_menu(self, row, event):
         menu = Gtk.Menu()
 
         label = "Unpin" if row.pinned else "Pin"
@@ -699,10 +842,11 @@ class PickerWindow(Gtk.Window):
         item_pin.connect("activate", lambda *_: self.on_toggle_pin(None, row.path))
         menu.append(item_pin)
 
-        item_restore = Gtk.MenuItem(label="Restore to clipboard")
-        item_restore.connect("activate", lambda *_: self.on_row_activated(self.listbox, row))
-        menu.append(item_restore)
-
+        # Pin and Delete only. Restore lived here too, which made the menu a
+        # third route to the thing double click and Enter already do, and put
+        # a destructive item directly below a harmless one that closes the
+        # window. The menu is now the two actions that have no other one-step
+        # equivalent on the row itself.
         item_del = Gtk.MenuItem(label="Delete")
         item_del.connect("activate", lambda *_: self._delete_row(row.path))
         menu.append(item_del)
@@ -712,7 +856,12 @@ class PickerWindow(Gtk.Window):
         self._modal_depth += 1
         menu.connect("deactivate", lambda *_: self._menu_closed())
         menu.show_all()
-        menu.popup_at_pointer(None)
+        # The real event, not None. Passing None makes GTK fall back to
+        # gtk_get_current_event(), which is not guaranteed to hold anything
+        # by the time this runs -- and when it holds nothing the menu is
+        # built, attached and then never shown. That is what "right click
+        # does nothing" was.
+        menu.popup_at_pointer(event)
 
     def _menu_closed(self):
         self._modal_depth -= 1
@@ -723,6 +872,21 @@ class PickerWindow(Gtk.Window):
     def _delete_row(self, path):
         delete(path)
         self.refresh()
+
+    def on_add_clip(self, button):
+        with self.modal():
+            text = run_add_dialog(self)
+        if text is None:
+            return
+        path = add_entry(text)
+        # Onto the clipboard as well, because the reason to type a clip in by
+        # hand is that you want to paste it somewhere now.
+        pasteable = write_clipboard(text)
+        self.refresh(reselect_path=path)
+        if not pasteable:
+            _message(self, "Clip added",
+                     "The clip was saved, but it could not be put on the "
+                     "clipboard. Double click it to try again.")
 
     def on_settings(self, button):
         with self.modal():
@@ -777,20 +941,62 @@ class PickerWindow(Gtk.Window):
             return True
         return False
 
+    def _restore_position(self):
+        """Put the window back where it was last left, or centre it.
+
+        Both coordinates have to be present to count as a saved position: a
+        config with only one of them written is a half-finished save, and
+        honouring it would drop the window on an axis the user never chose.
+
+        The saved position is checked against the screen before it is used.
+        Monitors come and go -- an external display at work, a VM window
+        resized -- and a position saved on a screen that is no longer there
+        would put the picker somewhere the user cannot reach it. Falling back
+        to centre is recoverable; opening off-screen is not, because the way
+        you would fix it is by moving the window you cannot see.
+        """
+        x = config_get_signed("WINDOW_X")
+        y = config_get_signed("WINDOW_Y")
+        if x is None or y is None:
+            self.set_position(Gtk.WindowPosition.CENTER)
+            return
+
+        screen = Gdk.Screen.get_default()
+        if screen is not None:
+            width = config_get_int("WINDOW_WIDTH")
+            height = config_get_int("WINDOW_HEIGHT")
+            # Require a reasonable slice of the window to land on-screen
+            # rather than the whole of it, so a window deliberately nudged
+            # past an edge still comes back where it was left.
+            margin = 80
+            if not (-width + margin <= x <= screen.get_width() - margin
+                    and -height + margin <= y <= screen.get_height() - margin):
+                self.set_position(Gtk.WindowPosition.CENTER)
+                return
+
+        self.move(x, y)
+
     def on_configure(self, widget, event):
         # Debounce: a drag fires many configure events, and writing the config
         # on each one would hammer the file. Save once, shortly after the last.
         if self._save_pending:
             return False
         self._save_pending = True
-        GLib.timeout_add(400, self._save_size)
+        GLib.timeout_add(400, self._save_geometry)
         return False
 
-    def _save_size(self):
+    def _save_geometry(self):
+        # Size and position together. They are saved from the same handler
+        # because a drag that moves the window and a drag that resizes it are
+        # the same signal, and splitting them would mean two config writes
+        # for one gesture.
         self._save_pending = False
         width, height = self.get_size()
         config_set_int("WINDOW_WIDTH", width)
         config_set_int("WINDOW_HEIGHT", height)
+        x, y = self.get_position()
+        config_set_int("WINDOW_X", x)
+        config_set_int("WINDOW_Y", y)
         return False
 
 
@@ -900,6 +1106,58 @@ def run_reset_dialog(parent):
 
     _message(parent, "Reset complete", "\n".join(lines))
     return True
+
+
+def run_add_dialog(parent):
+    """Ask for a clip to add by hand. Returns the text, or None if cancelled.
+
+    Multi-line, because the case this exists for is a payload or a block of
+    output that could not cross a VM boundary through the clipboard, and a
+    single-line entry would quietly mangle it.
+    """
+    dialog = Gtk.Dialog(title="Add a clip", transient_for=parent, flags=0)
+    dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL,
+                       "Add", Gtk.ResponseType.OK)
+    dialog.set_default_size(520, 260)
+    box = dialog.get_content_area()
+    box.set_spacing(8)
+    box.set_margin_top(12)
+    box.set_margin_bottom(12)
+    box.set_margin_start(14)
+    box.set_margin_end(14)
+
+    note = Gtk.Label(xalign=0.0)
+    note.set_line_wrap(True)
+    note.set_text("Type or paste the clip. It is saved to history and put on "
+                  "the clipboard, ready to paste.")
+    box.pack_start(note, False, False, 0)
+
+    view = Gtk.TextView()
+    view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    view.set_monospace(True)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_shadow_type(Gtk.ShadowType.IN)
+    scroller.add(view)
+    box.pack_start(scroller, True, True, 0)
+
+    filter_note = Gtk.Label(xalign=0.0)
+    filter_note.set_line_wrap(True)
+    filter_note.set_markup(
+        "<small>Stored as entered. The secret filter is not applied to a "
+        "clip you add yourself.</small>")
+    box.pack_start(filter_note, False, False, 0)
+
+    dialog.show_all()
+    view.grab_focus()
+    response = dialog.run()
+    buffer = view.get_buffer()
+    text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False)
+    dialog.destroy()
+
+    if response != Gtk.ResponseType.OK or not text.strip():
+        return None
+    return text
 
 
 def _message(parent, title, text):

@@ -1,5 +1,117 @@
 # Changelog
 
+## Version 0.5.6
+
+Right click works, clips can be typed in by hand, and the window can be
+dragged from its toolbar.
+
+### Fixed
+
+- **Right click on a row does something again.** It has been dead since the
+  menu was introduced. Two faults, both needed: the menu was popped with
+  `popup_at_pointer(None)`, which makes GTK fall back to
+  `gtk_get_current_event()` and quietly show nothing when that is empty; and
+  the gesture that was meant to trigger it was attached to a
+  `Gtk.ListBoxRow`, which draws no window of its own and had no button-press
+  mask, so it never saw a click. One handler on the list now finds the row
+  under the pointer and pops the menu with the real event.
+- Toolbar buttons and the row menu are themed rather than left to the
+  desktop. Both set a background colour that was being painted over by the
+  theme's gradient, because a gradient is a background *image* and is drawn
+  on top of `background-color` no matter which stylesheet wins.
+  `background-image: none` is what makes the colour take. On a light desktop
+  theme the toolbar was rendering as white chrome in a black window.
+
+### Added
+
+- **Add**, in the toolbar. Opens a box to type or paste a clip into by hand,
+  for when the clipboard cannot reach this machine — copying out of a host
+  into a VM, or off a console with no shared selection. Multi-line, because
+  the thing that could not cross the boundary is usually a block of output.
+  The clip is saved to history and put on the clipboard, ready to paste.
+- The toolbar is a drag handle for the window. `begin_move_drag` hands the
+  move to the window manager the same way a client-side-decorated header bar
+  does, so the window can be moved even where dragging its title bar does
+  nothing.
+- Two more test files: clips added by hand, and the daemon's dedupe. 99
+  checks across five files now.
+
+### Changed
+
+- The daemon skips a clipboard value that is already the newest stored entry.
+  Without it, adding a clip by hand landed twice — once written by the
+  picker, once captured from the clipboard half a second later. Only the
+  newest entry is compared, so restoring an older clip still bumps it back to
+  the top as before.
+- The secret filter does not apply to a clip added by hand, and the dialog
+  says so. The filter is there to stop a credential being swept up by
+  accident; text typed into a box labelled "add a clip" is not an accident,
+  and dropping it silently would be the worse failure.
+
+### Notes
+
+The 0.5.5 test for the right-click menu passed while right click was
+completely broken. It stubbed out the popup and asserted only on the menu's
+contents, so it checked the half that worked and skipped the half that did
+not. It now builds a real button event and asserts that the popup is handed
+that event rather than None.
+
+That test also had to be fixed before it could fail correctly: setting
+`event.button = 3` on a `Gdk.Event` does not set the button number, it
+shadows the union member, so every "is this button 3?" comparison silently
+saw an object instead of an integer. The fields have to be set through
+`event.button.button`.
+
+Verified end to end as well, not only in unit tests: the picker was run under
+a real X server, right-clicked with `xdotool`, and screenshotted to confirm a
+menu actually appears on screen.
+
+## Version 0.5.5
+
+The window stays where you put it, and the first tests.
+
+### Added
+
+- The picker remembers where it was moved to, not just how big it was.
+  Position is saved with the size, from the same drag, so one gesture is one
+  config write.
+- A saved position is checked against the screen before it is used. A
+  position from a monitor that is no longer connected is discarded and the
+  window centres instead. Opening off-screen is the one window bug you
+  cannot fix by dragging the window, because you cannot see it to drag.
+- A `tests/` directory, and `tests/run-tests.sh` to run all of it. Three
+  files so far: the stylesheet rules, window position, and the right-click
+  menu. The GTK tests fall back to `xvfb-run` when there is no display, so
+  the suite works over SSH.
+
+### Changed
+
+- The right-click menu is Pin and Delete. Restore is gone from it: double
+  click and Enter already restore, and the menu was putting a destructive
+  item directly below one that closes the window.
+- Pinned clips are white in the list, and red on the selected row. The red
+  pin icon still marks a pinned row while scanning, so red is free to do the
+  more useful job of showing which pinned row you are about to act on.
+- The stylesheet is installed at USER priority rather than APPLICATION.
+  APPLICATION already outranks a desktop theme on paper, but screenshots
+  from a real Kali desktop still showed theme grey behind a selected row
+  where this stylesheet asks for a dark tint. USER is the priority nothing
+  else in the stack outranks.
+
+### Notes
+
+Row numbering was left alone. Pinned clips and history each count from 1,
+which means the number 1 can appear twice. That reads as two lists because it
+is two lists, and nothing selects a row by number today. Worth revisiting
+only if number-key selection is ever added, at which point the repeat becomes
+a real ambiguity rather than a cosmetic one.
+
+The stylesheet test checks a rule rather than a snapshot: every selector that
+sets a colour must have a matching `:backdrop` twin, and every text colour
+must clear WCAG AA against the background it sits on. Both of those have
+already been broken once in this project, which is why they are the first
+things under test.
+
 ## Version 0.5.4
 
 A readable selected row, and a logo.

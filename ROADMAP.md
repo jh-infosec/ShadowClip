@@ -57,13 +57,23 @@
 - [x] Readable rows while the window is unfocused
 - [x] Click away to close
 - [x] Single click selects, double click restores
+- [x] App icon and logo, installed into the hicolor theme
+- [x] Amber selection that keeps pin colour readable
+- [x] Window remembers its position as well as its size
+- [x] Right-click menu trimmed to Pin and Delete
+- [x] Test harness, with the stylesheet, window position and menu covered
+- [x] Add a clip by hand, for clipboards that cannot cross a VM boundary
+- [x] Toolbar doubles as a window drag handle
+- [x] Right-click menu actually opens (broken since it was introduced)
 - [ ] Automated test for the bulk actions in the picker
+- [ ] Wayland: detect the session and fail loudly instead of capturing nothing
 
 ---
 
 ## Version 1.0
 
-- [ ] Automated test suite for config parsing and secret matching
+- [ ] Tests for the secret filter: credentials caught, working material spared
+- [ ] Automated test suite for config parsing
 - [ ] Encrypted history for the persistent storage mode
 - [ ] Packaged install
 - [ ] Configuration documented in one place

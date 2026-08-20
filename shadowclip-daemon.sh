@@ -110,6 +110,20 @@ is_paused() {
     [[ -f "$PAUSE_FILE" ]]
 }
 
+newest_entry_is() {
+    # True when the newest stored entry already holds exactly this value.
+    #
+    # The loop's own last_value only knows what this process has seen, so it
+    # cannot tell that the picker just wrote an entry and put the same text
+    # on the clipboard. Without this check that lands twice: once from the
+    # picker, once from the next poll. Comparing against the newest entry
+    # only, so restoring an older clip still bumps it back to the top.
+    local newest
+    newest=$(list_entries | head -n 1)
+    [[ -n "$newest" ]] || return 1
+    [[ "$(cat "$newest" 2>/dev/null)" == "$1" ]]
+}
+
 notify() {
     notify-send "ShadowClip" "$1" 2>/dev/null || true
 }
@@ -154,7 +168,12 @@ while true; do
             last_value="$current_value"
 
             filter_on=$(config_get_int SECRET_FILTER "$DEFAULT_SECRET_FILTER")
-            if [[ "$filter_on" -eq 1 ]] && looks_like_secret "$current_value"; then
+            if newest_entry_is "$current_value"; then
+                # Already the top of the history -- the picker put it there,
+                # by adding a clip or restoring the newest one. Nothing to do
+                # but note that we have seen it.
+                :
+            elif [[ "$filter_on" -eq 1 ]] && looks_like_secret "$current_value"; then
                 notify "Skipped a copied value that looks like a credential"
             else
                 timestamp=$(date +%s%N)

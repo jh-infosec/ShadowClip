@@ -211,15 +211,119 @@ fill under dark text. Until 0.5.4 it was the other way round, a bright green
 fill with black text, which inverted the contrast direction of every other
 surface and read as a hole in the list rather than a highlight.
 
-The row keeps its own text colour when selected, green normally and red when
-pinned. What marks the selection is the amber bar down the left edge, and
-because the bar carries that job the text colour does not have to — so a
-pinned row is still visibly pinned while it is selected, which it was not
-when selection overrode red with white.
+What marks the selection is the amber bar down the left edge. Because the bar
+carries that job, the row's text colour is free to carry a different one.
+
+Ordinary rows are green and go amber when selected. Pinned rows are white and
+go red when selected, which is the inverse of what 0.5.4 did and better use
+of the palette: the red pin icon already marks a row as pinned while scanning
+the list, so red on the text is redundant there and more useful on the
+selected row, where it says "the row you are about to act on is one you
+deliberately kept".
 
 Every row carries that bar at all times, transparent until selected. A border
 that appeared on selection would push the row's text sideways by its own
 width each time the selection moved.
+
+### The stylesheet is installed above the theme
+
+The provider goes in at USER priority, not APPLICATION. APPLICATION already
+outranks a desktop theme by the documented cascade, but screenshots from a
+real Kali desktop still showed theme grey behind a selected row where this
+stylesheet asks for a dark tint. Rather than keep guessing which theme rule
+was winning, the stylesheet takes the priority nothing else outranks.
+
+That is defensible because the picker is a fully themed surface: it sets its
+own colour for every state it draws, so there is nothing left for a theme to
+usefully contribute. A half-applied stylesheet here is not a cosmetic
+mismatch, it is the unreadable-row bug arriving by a different route.
+
+### The right-click menu is the actions with no other one-step route
+
+Pin and Delete. Restore was there until 0.5.5 and was removed: double click
+and Enter already restore, so the menu was a third route to the same thing,
+and it sat a destructive item directly below one that closes the window.
+
+Delete has no other single-step equivalent on the row, and pinning from the
+menu is worth keeping even though the row has its own pin icon, because the
+menu is where a user goes when they are not sure what a row offers.
+
+The menu is opened by one handler on the list, not a gesture per row. The
+per-row gestures it replaced never fired: a `Gtk.ListBoxRow` draws no window
+of its own and was given no button-press mask, so there were no events for a
+gesture to see. The handler resolves the row from the pointer's y coordinate
+and pops the menu with the event it was given — not with None, which makes
+GTK fall back to `gtk_get_current_event()` and show nothing when that is
+empty. Both faults were live at once, which is why the menu had never worked.
+
+### Adding a clip by hand
+
+The clipboard cannot always reach the machine the picker is on: a VM without
+a shared selection, a console session, a host-to-guest boundary that does not
+carry text. Add takes typed or pasted text and stores it as an ordinary
+entry.
+
+Ordinary is the point. It is named with a nanosecond timestamp like every
+captured entry, because ordering, pruning and expiry all read the filename as
+a timestamp and nothing anywhere carries a flag for where an entry came from.
+An entry that recorded its own origin would be a second kind of clip that
+each of those paths would have to learn about.
+
+The secret filter is not applied. It exists to stop a credential being swept
+up by accident while the user was copying something else, and text entered
+into a box labelled "add a clip" is not an accident. Dropping it silently
+would break the rule that the filter is never silent, so the dialog says
+plainly that the clip is stored as entered.
+
+The clip also goes onto the clipboard, since wanting to paste it is the
+reason to type it in. That would leave a duplicate for the daemon to capture
+on its next poll, so the daemon now skips a value that is already its newest
+stored entry. Only the newest: restoring an older clip should still bump it
+back to the top, and does.
+
+### The toolbar is a drag handle
+
+`begin_move_drag` on the toolbar, the same mechanism a client-side-decorated
+header bar uses. The title bar belongs to the window manager and normally
+moves a window on its own, but on a keep-above popup under some window
+managers it does not, and then there is no way to move the window at all —
+every other surface in it is a list that wants the same drag for selection.
+
+It lives in a `Gtk.EventBox`, because a `Gtk.Box` draws no window and so
+receives no button events. Presses that land on a toolbar button are consumed
+by that button first, so the handle is the space around them.
+
+### Colours have to defeat the theme's gradients
+
+Setting `background-color` is not enough on anything a desktop theme styles
+as a control. Themes paint buttons, menus and selected rows with a
+`linear-gradient`, and a gradient is a background *image*: it is composited
+over `background-color` regardless of which stylesheet won the cascade. The
+colour is set, and then covered.
+
+So every rule here that sets a background on a themed widget also sets
+`background-image: none`. Without it the toolbar rendered as the desktop's
+own light chrome inside a black window, and the row menu as a white popup
+hanging off it.
+
+### The window remembers where it was, within reason
+
+Position is saved with the size, from the same debounced handler, because a
+drag that moves the window and a drag that resizes it are the same signal.
+
+Coordinates get their own config reader. The general one matches digits only,
+which is correct for counts and wrong for positions: a monitor placed left of
+or above the primary one has negative coordinates, and a position saved there
+would silently fall back to centre. It returns None rather than a sentinel
+number, because every integer is a legal position.
+
+A saved position is checked against the screen before it is used, and both
+coordinates must be present to count. Restoring onto a monitor that is no
+longer connected is not a cosmetic failure: the window opens where the user
+cannot see it, and the usual fix — drag it back — requires seeing it. Centring
+is recoverable, so that is the fallback. The check allows a window to be
+slightly past an edge, since that may be deliberate, and only rejects a
+position that would leave almost nothing on screen.
 
 ### The icon has two drawings
 
@@ -462,8 +566,14 @@ The following files are part of the project structure and must be preserved:
 shadowclip-daemon.sh    shadowclip-picker.sh    shadowclip-picker.py
 shadowclip-toggle.sh    shadowclip-install.sh   shadowclip.service
 architecture.md         README.md               CHANGELOG.md
-ROADMAP.md              icons/
+ROADMAP.md              icons/                  tests/
 ```
+
+`tests/` holds `run-tests.sh` and the `test-*.py` files, plus `_harness.py`,
+which loads the picker by path against a temporary config and history so a
+test run can never touch a real clipboard history. The stylesheet test reads
+the CSS out of the source rather than the loaded module, so it runs without a
+display and checks the bytes that actually ship.
 
 `icons/` holds `shadowclip.svg` (the mark), `shadowclip-small.svg` (the 16px
 and 24px drawing), `shadowclip-wordmark.svg` (the README lockup), and the

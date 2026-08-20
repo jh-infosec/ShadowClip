@@ -40,10 +40,12 @@ It is a convenience tool with security controls, not a secrets manager.
 
 - Numbered history, 1 is most recent, newest entry emphasised in bold
 - Pin a clip from a per-row icon, a toolbar button, right-click, or Ctrl+P
-- Pinned clips listed first, shown in red, and still red while selected
+- Pinned clips listed first, shown in white, and red on the selected row
 - Toolbar with Pin and Settings that stays put while the list scrolls
-- Right-click any row to pin, restore or delete
-- Drag to resize; the window remembers its size
+- Right-click any row to pin or delete it
+- Add a clip by hand for when the clipboard cannot reach this machine
+- Drag to move and resize, by the title bar or the toolbar; the window
+  remembers both, and ignores a saved position that would land it off-screen
 - GTK window on a hotkey, with a search box that filters full entry text
 - History held in tmpfs, so nothing is written to the SSD
 - Secret filter that skips likely credentials and tells you when it does
@@ -306,6 +308,8 @@ EXPIRY_MINUTES=30
 SECRET_FILTER=1
 WINDOW_WIDTH=650
 WINDOW_HEIGHT=520
+WINDOW_X=420
+WINDOW_Y=180
 PREVIEW_CHARS=120
 ```
 
@@ -314,11 +318,29 @@ everything. Changes take effect immediately, with no daemon restart, because
 config is read at the point of use rather than cached at startup.
 
 Any value that is not a non-negative integer falls back to its default rather
-than being used.
+than being used. `WINDOW_X` and `WINDOW_Y` are the exception and may be
+negative, because a monitor placed left of or above the primary one has
+negative coordinates. Delete both to go back to opening centred.
 
 Paths can be overridden from the environment with `SHADOWCLIP_HISTDIR` and
 `SHADOWCLIP_CONFIG_DIR`. Pointing `SHADOWCLIP_HISTDIR` at somewhere under
 `$HOME` trades the tmpfs protection for history that survives logout.
+
+---
+
+## Tests
+
+```bash
+tests/run-tests.sh
+```
+
+Covers the stylesheet rules, window position memory, the row right-click
+menu, clips added by hand and the daemon's dedupe. The stylesheet test needs no display. The others build real GTK windows
+and fall back to `xvfb-run` when there is no display, so the suite works over
+SSH; install it with `sudo apt install xvfb` if it is missing.
+
+Tests use a temporary config and history directory, so a run never touches a
+real clipboard history.
 
 ---
 
