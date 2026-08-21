@@ -1,5 +1,26 @@
 # Changelog
 
+## Version 0.5.8
+
+One colour correction.
+
+### Changed
+
+- Ordinary clips are white when selected, the same as pinned ones. They were
+  briefly red in 0.5.7, which made red mean both "pinned" and "selected"
+  depending on where it appeared. White for the selected row and only the
+  selected row is the simpler rule, and it puts the highest contrast in the
+  palette on the one line the user is about to act on.
+- What separates the two selected states is now the fill behind them: amber
+  for an ordinary row, maroon for a pinned one, both under the same amber
+  bar. The pin icon is the other tell, since it is only at full strength on
+  a pinned row.
+
+### Notes
+
+Colours as they stand: ordinary clips green, pinned clips red, whichever row
+is selected white. Each colour means exactly one thing again.
+
 ## Version 0.5.7
 
 The window can be moved, and the selection colours are reworked.

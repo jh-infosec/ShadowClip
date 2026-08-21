@@ -57,8 +57,8 @@ It is a convenience tool with security controls, not a secrets manager.
 - Configurable maximum entries, changed from the popup
 - Owner-only permissions on the history directory and every entry
 - One-command install that binds both hotkeys for you
-- Black and green theme; the selected row is picked out by an amber bar,
-  and turns red for an ordinary clip or white for a pinned one
+- Black and green theme; the selected row is picked out by an amber bar and
+  turns white, whether it is pinned or not
 - App icon installed into the hicolor theme, with a drawing of its own for
   small sizes
 

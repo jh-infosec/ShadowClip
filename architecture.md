@@ -214,16 +214,19 @@ surface and read as a hole in the list rather than a highlight.
 What marks the selection is the amber bar down the left edge. Because the bar
 carries that job, the row's text colour is free to carry a different one.
 
-Ordinary rows are green and go red when selected. Pinned rows are red and go
-white when selected. White is reserved for the single row being acted on,
-which is the one place maximum contrast is worth spending.
+Ordinary rows are green, pinned rows are red, and whichever row is selected
+is white. Each colour means one thing: green is a clip, red is a clip worth
+keeping, white is the row about to be acted on. White is reserved for that
+single row because it is the highest contrast in the palette and there is
+only ever one place worth spending it.
 
-This does mean red carries two meanings: a red row in the list is pinned, a
-red row under the amber bar is selected. They are told apart by the bar and
-by the background tint, and in practice only one row is ever selected, so the
-ambiguity is bounded to a single line. It is the one place in the palette
-where a colour is not unique to one meaning, and worth knowing before
-changing anything here.
+0.5.7 briefly turned ordinary rows red on selection, which made red mean
+both "pinned" and "selected" depending on where it sat. It was legible, but
+it cost the palette its one-colour-one-meaning property for no gain.
+
+A selected row still shows whether it is pinned, through the fill behind it
+-- amber for ordinary, maroon for pinned -- and through the pin icon, which
+is only at full strength on a pinned row.
 
 Every row carries that bar at all times, transparent until selected. A border
 that appeared on selection would push the row's text sideways by its own

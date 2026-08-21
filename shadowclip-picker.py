@@ -586,11 +586,15 @@ class PickerWindow(Gtk.Window):
            so a pinned row is still legible as pinned while selected. The bar
            down the left edge is what says "selected", which is why the text
            colour does not have to. */
-        row:selected { background-color: #2A0A10; background-image: none;
+        row:selected { background-color: #3A2A00; background-image: none;
                        border-left-color: #FFB000; }
-        row:selected label { color: #FF3355; }
+        row:selected label { color: #FFFFFF; }
         row:selected .num { color: #C98A00; }
         row:selected .pinbtn { color: #FF3355; }
+        /* Both selected states are white. What tells them apart while
+           selected is the fill -- amber for an ordinary row, maroon for a
+           pinned one -- and the pin icon, which is only at full strength on
+           a pinned row. */
         .pinned:selected { background-color: #3A1018; background-image: none;
                            border-left-color: #FFB000; }
         .pinned:selected label { color: #FFFFFF; }
@@ -598,7 +602,7 @@ class PickerWindow(Gtk.Window):
 
         /* Hover, kept quiet so it never reads as a selection. */
         row:hover { background-color: #0A0A0A; background-image: none; }
-        row:selected:hover { background-color: #2A0A10; }
+        row:selected:hover { background-color: #3A2A00; }
         .pinned:selected:hover { background-color: #3A1018; }
 
         /* Backdrop: the state GTK applies when the window loses focus.
@@ -612,10 +616,10 @@ class PickerWindow(Gtk.Window):
         row:backdrop { background-color: #000000; background-image: none;
                        border-bottom-color: #001a00;
                        border-left-color: transparent; }
-        row:selected:backdrop { background-color: #2A0A10;
+        row:selected:backdrop { background-color: #3A2A00;
                                 background-image: none;
                                 border-left-color: #FFB000; }
-        row:selected:backdrop label { color: #FF3355; }
+        row:selected:backdrop label { color: #FFFFFF; }
         row:selected:backdrop .num { color: #C98A00; }
         row:selected:backdrop .pinbtn { color: #FF3355; }
         .pinned:backdrop label { color: #FF3355; }
@@ -626,7 +630,7 @@ class PickerWindow(Gtk.Window):
         .pinned:selected:backdrop .num { color: #E0A030; }
         row:hover:backdrop { background-color: #0A0A0A;
                              background-image: none; }
-        row:selected:hover:backdrop { background-color: #2A0A10; }
+        row:selected:hover:backdrop { background-color: #3A2A00; }
         .pinned:selected:hover:backdrop { background-color: #3A1018; }
         .toolbtn:hover:backdrop { background-color: #002a00;
                                   background-image: none; }
