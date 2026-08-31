@@ -25,8 +25,8 @@ COLOUR_PROPS = {"color", "background-color", "border-left-color"}
 # intends, so that a rule change which breaks the intent shows up as a
 # failure rather than quietly re-deriving itself into passing.
 PAIRS = [
-    ("selected row text",       "#FF3355", "#2A0A10", 4.5),
-    ("selected row number",     "#C98A00", "#2A0A10", 4.5),
+    ("selected row text",       "#FFFFFF", "#3A2A00", 4.5),
+    ("selected row number",     "#C98A00", "#3A2A00", 4.5),
     ("selected pinned text",    "#FFFFFF", "#3A1018", 4.5),
     ("selected pinned number",  "#E0A030", "#3A1018", 4.5),
     ("unselected row text",     "#00CC33", "#000000", 4.5),
@@ -35,7 +35,7 @@ PAIRS = [
     ("search entry text",       "#00FF41", "#001a00", 4.5),
     ("menu item text",          "#00CC33", "#000000", 4.5),
     ("menu item hover text",    "#FFB000", "#3A2A00", 4.5),
-    ("selection bar on normal", "#FFB000", "#2A0A10", 3.0),
+    ("selection bar on normal", "#FFB000", "#3A2A00", 3.0),
     ("selection bar on pinned", "#FFB000", "#3A1018", 3.0),
     ("selection bar on list",   "#FFB000", "#000000", 3.0),
 ]

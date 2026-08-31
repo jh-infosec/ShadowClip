@@ -1,5 +1,78 @@
 # Changelog
 
+## Version 0.5.9
+
+Five correctness and safety fixes, all of them reproduced before being fixed.
+
+### Fixed
+
+- **Reset could report an emptied clipboard that was never emptied.** The
+  read-back used to return `""` both when the clipboard was genuinely empty
+  and when it could not be read at all, and the clear command's exit status
+  was never checked — so on a machine where the read failed, the dialog said
+  "Clipboard emptied." with the credential still sitting in the selection.
+  Reading now returns `None` for failure, which is a different answer from
+  empty, and success requires three things: the clear ran, the read-back ran,
+  and it came back empty. This is the fix that matters most, because the user
+  acts on that sentence.
+
+- **`SECRET_FILTER=2` silently disabled the secret filter.** It passed the
+  integer check and then failed the `-eq 1` test at the point of use. The
+  switch is now parsed as a boolean: anything that is not exactly `0` or `1`
+  falls back to on. A typo in a hand-edited config must not quietly turn off
+  the control that keeps credentials out of history.
+
+- **`MAX_ENTRIES=08` crashed the daemon in a loop.** A leading zero made bash
+  read the value as octal, arithmetic aborted with "value too great for
+  base", `set -e` killed the daemon, and systemd restarted it into the same
+  failure on the next poll — dropping clips for as long as the typo stayed
+  in the file. Values are now parsed base ten and length-bounded.
+
+- **Copied text lost its trailing newlines.** The capture loop held the
+  clipboard in a shell variable, and command substitution strips every
+  trailing newline, so a block of shell output ending in a blank line came
+  back out of history shorter than it went in. No amount of quoting fixes
+  that; the bytes are gone before the assignment happens. The clipboard now
+  lives in a file and comparisons use `cmp`, so what is stored is byte-for-byte
+  what was copied.
+
+- **The hotkey could terminate an unrelated process.** The lock file held a
+  PID that was only checked for existence before being sent `SIGTERM`. PIDs
+  are reused, and a lock file outliving a crashed picker could name a PID
+  belonging to something else. The lock is now an advisory `flock` held on an
+  open descriptor — released by the kernel whenever the process dies, so a
+  crash leaves nothing stale — and the PID is verified to be running this
+  program, by reading its command line, before anything is signalled.
+
+- **`SHADOWCLIP_BINDIR` did not reach the systemd unit.** The installer
+  honoured it for the scripts but copied the unit verbatim, and the unit
+  hardcodes `%h/bin/shadowclip-daemon.sh`. Installing into `~/.local/bin`
+  produced a service that either failed to start or, worse, silently kept
+  running an older daemon left in `~/bin` while the installer reported
+  success. The unit is now generated with the chosen bindir, and the
+  installer refuses to install one pointing at a daemon that is not there.
+
+### Added
+
+- Four test files covering the above: daemon config validation, byte-exact
+  capture, clipboard reporting honesty, the instance lock, and the generated
+  unit. 166 checks across ten files.
+- The capture test runs the real daemon against a real X clipboard, because
+  the newline bug lived in the plumbing between them and no unit test of the
+  helpers would have seen it.
+
+### Notes
+
+Each of these was reproduced first. The clipboard one returned `True` with the
+selection untouched; the lock one killed a `sleep` process; the daemon lost
+three bytes of a 54-byte clip. The same scripted checks now run as tests, so
+they fail loudly rather than being rediscovered.
+
+Two of these are worth thinking of as one class rather than five separate
+bugs: `SECRET_FILTER=2` and the false "Clipboard emptied" both had ShadowClip
+telling the user a security control was working when it was not. That is the
+failure this project can least afford, given what it is for.
+
 ## Version 0.5.8
 
 One colour correction.

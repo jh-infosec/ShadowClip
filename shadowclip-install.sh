@@ -135,7 +135,33 @@ install_service() {
         return 0
     fi
     mkdir -p "$SYSTEMD_USER_DIR"
-    install -m 644 "$SOURCE_DIR/shadowclip.service" "$SYSTEMD_USER_DIR/shadowclip.service"
+    # The unit is generated, not copied. The shipped file carries the default
+    # path so it still works if someone installs it by hand, but SHADOWCLIP_BINDIR
+    # can move the scripts anywhere -- and a unit copied verbatim would keep
+    # pointing at ~/bin. Installing into ~/.local/bin then produced a service
+    # that either failed to start or, worse, silently kept running an older
+    # copy left in ~/bin while the installer reported success.
+    local unit="$SYSTEMD_USER_DIR/shadowclip.service"
+    local tmp_unit="$unit.tmp.$$"
+    sed "s|^ExecStart=.*|ExecStart=$BINDIR/shadowclip-daemon.sh|" \
+        "$SOURCE_DIR/shadowclip.service" > "$tmp_unit"
+
+    # Verify before installing. A unit naming a path that is not there fails
+    # at start time with a message that points at systemd rather than at the
+    # real cause, so it is caught here instead.
+    if ! grep -q "^ExecStart=$BINDIR/shadowclip-daemon.sh$" "$tmp_unit"; then
+        rm -f "$tmp_unit"
+        say "could not set ExecStart in the service unit -- aborting"
+        return 1
+    fi
+    if [ ! -x "$BINDIR/shadowclip-daemon.sh" ]; then
+        rm -f "$tmp_unit"
+        say "$BINDIR/shadowclip-daemon.sh is missing or not executable -- aborting"
+        return 1
+    fi
+    install -m 644 "$tmp_unit" "$unit"
+    rm -f "$tmp_unit"
+    say "service points at $BINDIR/shadowclip-daemon.sh"
     systemctl --user daemon-reload
     # enable, then restart rather than `enable --now`. `--now` starts a
     # stopped service but leaves a running one alone, so re-running the

@@ -66,6 +66,11 @@
 - [x] Toolbar doubles as a window drag handle
 - [x] Right-click menu actually opens (broken since it was introduced)
 - [x] Window survives being dragged instead of closing mid-drag
+- [x] Clipboard clear reports honestly instead of assuming success
+- [x] Config values validated so a typo cannot disable the filter or crash the daemon
+- [x] Clipboard bytes preserved exactly, trailing newlines included
+- [x] Instance lock cannot signal a reused PID
+- [x] Installer generates the systemd unit with the chosen bindir
 - [ ] Automated test for the bulk actions in the picker
 - [ ] Wayland: detect the session and fail loudly instead of capturing nothing
 

@@ -67,6 +67,25 @@ requirement alongside the theme file, and would mean any script copied
 somewhere on its own silently breaks. The duplicated block is short and
 changes rarely. If it grows, that is the signal to revisit this decision.
 
+### Config values are validated, not merely matched
+
+Parsing is not the same as validating, and two settings showed the difference.
+
+`SECRET_FILTER` is a switch, so it is read as a switch: only `0` or `1`, and
+anything else falls back to on. Read as a general integer it passed the digit
+check and then failed the `-eq 1` comparison at the point of use, so
+`SECRET_FILTER=2` in a hand-edited file turned the filter off without a word.
+The direction of the fallback is the point -- an unrecognised value must leave
+protection on, because the file is meant to be edited by hand and a typo in it
+should not be the same as a decision to disable the filter.
+
+Numbers are read base ten. Bash treats a leading zero as octal, so
+`MAX_ENTRIES=08` reached arithmetic and aborted with "value too great for
+base"; `set -e` then killed the daemon and systemd restarted it into the same
+failure on the next poll. A config typo became a restart loop that dropped
+clips. They are length-bounded too, so an absurdly long digit string never
+reaches arithmetic at all.
+
 ### Config is parsed, never sourced
 
 `config_get_int` reads a single key with `grep` and validates it as an
@@ -133,6 +152,54 @@ make the tool untrustworthy in exactly the situation it was built for.
 When a value is skipped the user is notified. A history that silently omits
 something is worse than one that stores it, because the user cannot tell the
 difference between "not captured" and "not copied".
+
+### Clipboard bytes never pass through a shell variable
+
+The capture loop keeps the clipboard in a file. Command substitution strips
+every trailing newline, so `current=$(xclip -o)` silently rewrote the clip:
+copy a block of output ending in a blank line and history handed back
+something shorter. No quoting fixes it, because the bytes are gone before the
+assignment happens.
+
+For a tool whose entire purpose is returning exactly what was copied, that is
+a correctness failure rather than a cosmetic one. So the clipboard goes to a
+temp file, comparisons use `cmp`, and the secret filter reads the file too --
+the filter has to see the bytes that will actually be stored.
+
+### Reporting a security action requires evidence
+
+Reset offers to empty the live selection, and then says whether it worked.
+That sentence is the whole value of the feature: told the clipboard is clear,
+the user stops worrying about a credential that was in it.
+
+So success requires three separate facts -- the clear command succeeded, the
+read-back succeeded, and it returned empty. Each was individually missing
+before. In particular the clipboard read returned `""` for both "empty" and
+"could not read", which are opposite answers to the only question being asked,
+and a failed read therefore looked like proof of an empty clipboard.
+
+Failure is reported as failure, in the words the user needs: the value is
+still pasteable. An honest failure lets them go and deal with it. A false
+success does not.
+
+### The instance lock is a lock, not a PID guess
+
+Single-instance is an advisory `flock` held on a descriptor for the life of
+the process. The kernel releases it when the process dies, however it dies, so
+a crashed picker leaves nothing stale behind and the next hotkey press simply
+works.
+
+The PID in the file is used only to signal an instance that has already been
+confirmed to be this program, by reading `/proc/<pid>/cmdline`. Asking merely
+whether a PID exists is a different question from whether it is ours: PIDs are
+reused, and a lock file that outlived a crash could name a PID now belonging
+to something else. That was not theoretical -- it terminated an unrelated
+process in testing.
+
+If the identity cannot be established the answer is no, and nothing is
+signalled. The cost of being wrong in that direction is a picker that has to
+be closed by hand; the cost in the other direction is killing somebody else's
+program.
 
 ### The picker is a separate front end
 

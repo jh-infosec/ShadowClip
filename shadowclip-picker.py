@@ -26,6 +26,7 @@
 #   sudo apt install python3-gi gir1.2-gtk-3.0 xclip
 
 import contextlib
+import fcntl
 import os
 import re
 import shutil
@@ -284,14 +285,30 @@ def set_paused(paused):
 # the live clipboard
 
 def clipboard_text():
+    """Read the clipboard. Returns None when it could not be read at all.
+
+    None for failure rather than "", and the distinction matters more here
+    than anywhere else in the program. "Unreadable" and "empty" are opposite
+    answers to the only question that counts after a reset -- is the
+    credential still pasteable? -- and collapsing both into "" let a failed
+    read look like proof of an empty clipboard.
+
+    An empty selection makes xclip exit non-zero and say the target is not
+    available, so the exit code alone cannot separate the two either. That
+    specific message is treated as empty; anything else is a failure.
+    """
     try:
         result = subprocess.run(
             ["xclip", "-selection", "clipboard", "-o"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2,
         )
-        return result.stdout.decode("utf-8", "replace")
     except (OSError, subprocess.SubprocessError):
-        return ""
+        return None
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", "replace").lower()
+        if "not available" not in stderr and "no selection" not in stderr:
+            return None
+    return result.stdout.decode("utf-8", "replace")
 
 
 def clear_clipboard():
@@ -305,13 +322,30 @@ def clear_clipboard():
     read back rather than assumed. Reporting success while the secret is still
     pasteable would be worse than not offering this at all.
 
-    Returns True only if a read-back comes back empty.
+    Returns True only when the clear command itself succeeded AND a
+    read-back afterwards succeeded AND came back empty. All three, because
+    each one on its own has a way of being true while the credential is
+    still sitting in the selection:
+
+    - The command's exit status was not checked at all before, so xsel
+      failing looked the same as xsel working.
+    - A read-back that could not run returned "" from clipboard_text, which
+      compared equal to empty and read as proof. That is how this could
+      report "Clipboard emptied" on a machine where the clipboard had not
+      been touched.
+
+    Anything less than all three is reported as failure. The reset dialog
+    prints the result verbatim, so a False here tells the user the value is
+    still pasteable -- which is the answer they need in order to go and deal
+    with it themselves.
     """
     try:
         if shutil.which("xsel"):
             # xsel has an explicit clear, which disowns the selection outright.
-            subprocess.run(["xsel", "--clipboard", "--clear"], timeout=2,
-                           stderr=subprocess.DEVNULL)
+            result = subprocess.run(["xsel", "--clipboard", "--clear"],
+                                    timeout=2, stderr=subprocess.DEVNULL)
+            if result.returncode != 0:
+                return False
         else:
             # Take ownership serving zero bytes. Detached, for the same reason
             # restore is: this process is about to carry on or exit.
@@ -321,6 +355,11 @@ def clear_clipboard():
                 stderr=subprocess.DEVNULL,
             )
             proc.stdin.close()
+            # Detached, so it cannot be waited on for a status. An immediate
+            # failure to even start is what is being caught here; the
+            # read-back below is what actually proves the outcome.
+            if proc.poll() not in (None, 0):
+                return False
     except (OSError, subprocess.SubprocessError):
         return False
     # The new owner needs a moment to answer the read-back.
@@ -1370,41 +1409,94 @@ class SettingsDialog:
 
 
 # single instance / toggle
+#
+# Two mechanisms, because one is not enough.
+#
+# The lock is an advisory flock held on an open descriptor for the life of the
+# process. The kernel drops it when the process dies, however it dies, so a
+# crashed picker leaves nothing stale behind -- there is no window in which a
+# dead instance's record still looks live. The previous scheme wrote a PID to
+# a file and asked whether that PID existed, which is a different question:
+# PIDs are reused, and a reused one belongs to somebody else.
+#
+# The PID written into the file is then only ever used to signal a process
+# that has already been confirmed to be a picker, by reading its command line.
+# Without that check, a stale file naming a recycled PID meant the hotkey sent
+# SIGTERM to an unrelated program. That was reachable in practice: the file
+# outlived a crash, and PID reuse needs nothing more than a busy machine.
 
 LOCK_FILE = os.path.join(HISTDIR, ".picker.pid")
+LOCK_FD = None          # kept open for the life of the process; closing frees
+                        # the flock, so this must stay referenced
 
 
-def _process_alive(pid):
-    # Signal 0 tests for the process without touching it. ESRCH means gone,
-    # EPERM means alive but not ours, which for our own picker will not happen.
+def _process_cmdline(pid):
+    """The argv of a process, or None if it cannot be read."""
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        with open("/proc/{}/cmdline".format(pid), "rb") as fh:
+            return fh.read().decode("utf-8", "replace").split("\0")
+    except OSError:
+        return None
+
+
+def _is_our_picker(pid):
+    """True only when this PID is running this program.
+
+    Checked before signalling, so a PID that has been recycled since the lock
+    file was written cannot be sent SIGTERM. /proc is Linux-only, which this
+    program already is -- and if it cannot be read the answer is no, because
+    refusing to signal an unidentifiable process is the safe direction: the
+    worst case is a picker that has to be closed by hand.
+    """
+    argv = _process_cmdline(pid)
+    if not argv:
         return False
-    except PermissionError:
-        return True
+    return any("shadowclip-picker" in part for part in argv)
+
+
+def acquire_lock():
+    """Take the single-instance lock. False if another picker holds it.
+
+    The open-and-flock is atomic: two pickers launched together cannot both
+    believe they won, which a check-then-write could not guarantee.
+    """
+    global LOCK_FD
+    os.makedirs(HISTDIR, exist_ok=True)
+    fd = os.open(LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, str(os.getpid()).encode())
+    os.fsync(fd)
+    LOCK_FD = fd
     return True
 
 
 def running_instance_pid():
-    # Returns the PID of a live picker holding the lock, or None. A lock left
-    # behind by a crashed process is treated as stale and ignored, so a crash
-    # never wedges the picker shut.
+    """The PID of a live picker holding the lock, or None.
+
+    Identity is verified, not assumed. A PID in the file that is alive but
+    belongs to something else is treated as no instance at all.
+    """
     try:
         with open(LOCK_FILE) as fh:
             pid = int(fh.read().strip())
     except (OSError, ValueError):
         return None
-    if pid != os.getpid() and _process_alive(pid):
-        return pid
-    return None
+    if pid == os.getpid():
+        return None
+    if not _is_our_picker(pid):
+        return None
+    return pid
 
 
 def toggle_closed_existing():
     # If another picker is up, close it and report that we did. This is what
     # turns a second hotkey press into "close" rather than "open another".
-    # SIGTERM lets the running instance clean up its own lock in the finally
-    # below; we do not delete its lock for it.
+    # SIGTERM lets the running instance clean up on its way out.
     pid = running_instance_pid()
     if pid is None:
         return False
@@ -1415,14 +1507,17 @@ def toggle_closed_existing():
     return True
 
 
-def write_lock():
-    os.makedirs(HISTDIR, exist_ok=True)
-    fd = os.open(LOCK_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(str(os.getpid()))
-
-
 def clear_own_lock():
+    # The flock goes when the descriptor closes, which the kernel would do at
+    # exit anyway; this is the tidy path. The file is removed only if it still
+    # names us, so a picker that took over in the meantime keeps its own.
+    global LOCK_FD
+    try:
+        if LOCK_FD is not None:
+            os.close(LOCK_FD)
+            LOCK_FD = None
+    except OSError:
+        pass
     try:
         with open(LOCK_FILE) as fh:
             if int(fh.read().strip()) == os.getpid():
@@ -1441,8 +1536,13 @@ def main():
     if toggle_closed_existing():
         return 0
 
-    os.makedirs(HISTDIR, exist_ok=True)
-    write_lock()
+    # The lock is the authority, not the toggle check above. If it cannot be
+    # taken, another picker is genuinely running -- one that was not closed by
+    # the toggle because it could not be identified as ours -- and opening a
+    # second window on top of it would be worse than doing nothing.
+    if not acquire_lock():
+        sys.stderr.write("shadowclip-picker: another picker holds the lock\n")
+        return 0
 
     # SIGTERM from the toggling instance must exit the loop cleanly so the
     # finally can remove the lock. Quitting GTK is the graceful way out.

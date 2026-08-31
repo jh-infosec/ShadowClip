@@ -1,0 +1,26 @@
+# Line endings.
+#
+# Git for Windows sets core.autocrlf=true globally, so a plain clone rewrites
+# every text file to CRLF on checkout. That is harmless for the markdown, and
+# fatal for the scripts: bash reads the trailing CR as part of the interpreter
+# path and fails with
+#
+#     /bin/bash^M: bad interpreter: No such file or directory
+#
+# on a machine that has bash perfectly well. This file overrides that per
+# type, so the shell scripts and Python land with LF wherever they are cloned.
+
+# Default: let git decide for text, and normalise to LF in the repository.
+* text=auto eol=lf
+
+# Anything that runs must keep LF, no matter the platform.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.service text eol=lf
+
+# Binaries git must never touch.
+*.png   binary
+*.zip   binary
+
+# SVG is text and diffs usefully, but keep it LF like everything else.
+*.svg   text eol=lf

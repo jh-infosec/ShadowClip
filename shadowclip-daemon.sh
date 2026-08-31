@@ -88,11 +88,35 @@ config_get_int() {
     # execution path nobody wants in a tool that handles secrets.
     local key="$1" default="$2" value
     value=$(grep -E "^${key}=" "$CONFIG_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-        printf '%s' "$value"
-    else
+    if [[ ! "$value" =~ ^[0-9]{1,9}$ ]]; then
         printf '%s' "$default"
+        return 0
     fi
+    # 10# forces base ten. Without it a hand-edited MAX_ENTRIES=08 is read as
+    # octal by the arithmetic that uses it, bash aborts with "value too great
+    # for base", set -e kills the daemon, and systemd restarts it straight
+    # back into the same failure on the next poll. A leading zero in a config
+    # file turning into a restart loop that drops clips is not a failure mode
+    # worth keeping. The length bound stops a very long digit string reaching
+    # arithmetic at all.
+    printf '%s' "$((10#$value))"
+}
+
+config_get_bool() {
+    # config_get_bool KEY DEFAULT
+    #
+    # Separate from config_get_int, because a switch has two valid values
+    # rather than any integer. SECRET_FILTER=2 passed the integer check and
+    # then failed the -eq 1 test at the point of use, which silently turned
+    # the filter off -- the one setting where a typo must never quietly
+    # disable protection. Anything that is not exactly 0 or 1 falls back to
+    # the default, and the default for the filter is on.
+    local key="$1" default="$2" value
+    value=$(grep -E "^${key}=" "$CONFIG_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+    case "$value" in
+        0|1) printf '%s' "$value" ;;
+        *)   printf '%s' "$default" ;;
+    esac
 }
 
 # entry helpers
@@ -110,28 +134,33 @@ is_paused() {
     [[ -f "$PAUSE_FILE" ]]
 }
 
-newest_entry_is() {
-    # True when the newest stored entry already holds exactly this value.
+newest_entry_is_file() {
+    # True when the newest stored entry is byte-for-byte this file.
     #
-    # The loop's own last_value only knows what this process has seen, so it
-    # cannot tell that the picker just wrote an entry and put the same text
+    # The loop's own last-seen copy only knows what this process has seen, so
+    # it cannot tell that the picker just wrote an entry and put the same text
     # on the clipboard. Without this check that lands twice: once from the
-    # picker, once from the next poll. Comparing against the newest entry
-    # only, so restoring an older clip still bumps it back to the top.
+    # picker, once from the next poll. The newest entry only, so restoring an
+    # older clip still bumps it back to the top.
     local newest
     newest=$(list_entries | head -n 1)
     [[ -n "$newest" ]] || return 1
-    [[ "$(cat "$newest" 2>/dev/null)" == "$1" ]]
+    cmp -s "$1" "$newest"
 }
 
 notify() {
     notify-send "ShadowClip" "$1" 2>/dev/null || true
 }
 
-looks_like_secret() {
-    local value="$1" pattern
+looks_like_secret_file() {
+    # Scans the first SECRET_SCAN_CHARS bytes of a file.
+    #
+    # Reading from the file rather than a shell variable, for the same reason
+    # the capture loop does: a variable cannot hold arbitrary clipboard bytes
+    # faithfully, and the filter has to see what will actually be stored.
+    local file="$1" pattern
     for pattern in "${SECRET_PATTERNS[@]}"; do
-        if printf '%s' "${value:0:SECRET_SCAN_CHARS}" | grep -Eqi -- "$pattern"; then
+        if head -c "$SECRET_SCAN_CHARS" "$file" | grep -Eqi -- "$pattern"; then
             return 0
         fi
     done
@@ -154,31 +183,48 @@ expire_stale_entries() {
 }
 
 # main loop
+#
+# The clipboard is held in files, never in a shell variable. Command
+# substitution strips every trailing newline, so `x=$(xclip -o)` silently
+# rewrites the clip: copy a block of shell output ending in a blank line and
+# what comes back out of history is not what went in. For a tool whose whole
+# job is to hand back exactly what was copied, that is a correctness bug, and
+# it cannot be fixed by quoting -- the newlines are gone before the assignment
+# happens. A temp file plus cmp compares bytes and keeps them.
 
-last_value=""
+CURRENT_CLIP=$(mktemp "${TMPDIR:-/tmp}/shadowclip-current.XXXXXX")
+LAST_CLIP=$(mktemp "${TMPDIR:-/tmp}/shadowclip-last.XXXXXX")
+chmod 600 "$CURRENT_CLIP" "$LAST_CLIP"
+# These hold clipboard contents, so they are removed on every exit path, not
+# just a clean one.
+trap 'rm -f "$CURRENT_CLIP" "$LAST_CLIP"' EXIT INT TERM
+
 loop_count=0
 
 while true; do
     if ! is_paused; then
-        current_value=$(xclip -selection clipboard -o 2>/dev/null || true)
+        xclip -selection clipboard -o > "$CURRENT_CLIP" 2>/dev/null || true
 
-        if [[ -n "$current_value" && "$current_value" != "$last_value" ]]; then
+        if [[ -s "$CURRENT_CLIP" ]] && ! cmp -s "$CURRENT_CLIP" "$LAST_CLIP"; then
             # Record the value as seen either way, so a skipped secret is not
             # re-tested on every single poll until the clipboard changes.
-            last_value="$current_value"
+            cp "$CURRENT_CLIP" "$LAST_CLIP"
 
-            filter_on=$(config_get_int SECRET_FILTER "$DEFAULT_SECRET_FILTER")
-            if newest_entry_is "$current_value"; then
+            filter_on=$(config_get_bool SECRET_FILTER "$DEFAULT_SECRET_FILTER")
+            if newest_entry_is_file "$CURRENT_CLIP"; then
                 # Already the top of the history -- the picker put it there,
                 # by adding a clip or restoring the newest one. Nothing to do
                 # but note that we have seen it.
                 :
-            elif [[ "$filter_on" -eq 1 ]] && looks_like_secret "$current_value"; then
+            elif [[ "$filter_on" -eq 1 ]] && looks_like_secret_file "$CURRENT_CLIP"; then
                 notify "Skipped a copied value that looks like a credential"
             else
                 timestamp=$(date +%s%N)
-                printf '%s' "$current_value" > "$HISTDIR/$timestamp"
-                chmod 600 "$HISTDIR/$timestamp"
+                # Create with the right mode rather than chmod after: between
+                # the write and the chmod the clip is briefly readable, and
+                # this is the one file in the project most likely to hold a
+                # credential.
+                (umask 077 && cp "$CURRENT_CLIP" "$HISTDIR/$timestamp")
                 prune_old_entries
             fi
         fi

@@ -241,6 +241,7 @@ Escape closes the picker, and so does clicking anywhere outside it.
 
 The toolbar across the top stays visible while the list scrolls:
 
+- **Add** types or pastes in a clip by hand
 - **Pin selected** pins or unpins the highlighted entry
 - **Reset** deletes everything and starts fresh
 - **Settings** opens the settings dialog
@@ -254,18 +255,37 @@ Four ways, whichever is nearest your hand:
 - right-click a row and choose Pin or Unpin
 - select a row and press Ctrl+P
 
-Pinned entries move to the top in red and are skipped by pruning, auto-expiry
-and clear. Pinning does not make them persistent: history lives in tmpfs, so
-pins are gone at logout like everything else.
+Pinned entries move to the top in red, turning white on the selected row, and
+are skipped by pruning, auto-expiry and clear. Pinning does not make them
+persistent: history lives in tmpfs, so pins are gone at logout like everything
+else.
 
 ### Right-click
 
-Right-click any row for Pin/Unpin, Restore to clipboard, and Delete.
+Right-click any row for Pin/Unpin and Delete. Restoring is not in the menu:
+double click and Enter already do it, and a destructive item sitting directly
+below one that closes the window was a misclick waiting to happen.
 
-### Resizing
+### Adding a clip by hand
 
-Drag the window edges. The size is saved to `WINDOW_WIDTH` and
-`WINDOW_HEIGHT` and restored next time.
+**Add** in the toolbar opens a box to type or paste into, for when the
+clipboard cannot reach this machine — copying out of a host into a VM, or off
+a console with no shared selection. It takes multiple lines. The clip is saved
+to history and put on the clipboard, ready to paste.
+
+The secret filter is not applied to a clip you add yourself. The filter exists
+to stop a credential being swept up by accident, and typing into a box labelled
+"add a clip" is not an accident. The dialog says so.
+
+### Moving and resizing
+
+Drag the window by its title bar, or by the empty space in the toolbar if your
+window manager will not move it from the title bar. Drag the edges to resize.
+
+Both are saved, to `WINDOW_X`/`WINDOW_Y` and `WINDOW_WIDTH`/`WINDOW_HEIGHT`,
+and restored next time. A saved position that would land the window off-screen
+— an external monitor that is no longer connected — is discarded and the
+window opens centred instead.
 
 ### Settings
 
@@ -319,7 +339,9 @@ everything. Changes take effect immediately, with no daemon restart, because
 config is read at the point of use rather than cached at startup.
 
 Any value that is not a non-negative integer falls back to its default rather
-than being used. `WINDOW_X` and `WINDOW_Y` are the exception and may be
+than being used. Numbers are read base ten, so a leading zero is not treated
+as octal, and `SECRET_FILTER` accepts only `0` or `1` — any other value leaves
+the filter on rather than silently disabling it. `WINDOW_X` and `WINDOW_Y` are the exception and may be
 negative, because a monitor placed left of or above the primary one has
 negative coordinates. Delete both to go back to opening centred.
 
@@ -336,7 +358,8 @@ tests/run-tests.sh
 ```
 
 Covers the stylesheet rules, window position memory, the row right-click
-menu, clips added by hand, the daemon's dedupe and the drag guard. The stylesheet test needs no display. The others build real GTK windows
+menu, clips added by hand, the drag guard, config validation, byte-exact
+capture, clipboard reporting and the instance lock. The stylesheet test needs no display. The others build real GTK windows
 and fall back to `xvfb-run` when there is no display, so the suite works over
 SSH; install it with `sudo apt install xvfb` if it is missing.
 
